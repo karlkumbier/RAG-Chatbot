@@ -1,65 +1,88 @@
 # Persister Information Center for AI-assisted Research and Development
-import os
-import databutton as db
-from typing import Tuple, List
-import pickle
-
-from langchain_openai import AzureOpenAIEmbeddings, AzureOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain.docstore.document import Document
+from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
+from langchain.prompts import ChatPromptTemplate
 from langchain.vectorstores.faiss import FAISS
-import faiss
 import streamlit as st
 
+from operator import itemgetter
+from typing import List
+
+from langchain_core.documents import Document
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import (
+    RunnableLambda,
+    RunnableParallel,
+    RunnablePassthrough,
+)
+
+def format_docs(docs: List[Document]) -> str:
+    """Convert Documents to a single string."""
+    formatted = [
+        f"Article Reference: {doc.metadata['reference']}\nArticle Snippet: {doc.page_content}"
+        for doc in docs
+    ]
+    return "\n\n" + "\n\n".join(formatted)
+
+def cite_response(result: str) -> str:
+    """Reference answer based on doc(s) used to generate response"""
+    refs = [d.metadata.get("reference") for d in result.get("docs")]
+    refs = "; ".join(set(refs))
+
+    if result.get("answer") == "I'm not sure, that information is not in my library":
+        return result.get("answer")        
+    else:
+        return result.get("answer") + " [" + refs + "]" 
+        
+
+# Initialize embedder used to vectorize queries
 embedder = AzureOpenAIEmbeddings(
     deployment="text-embedding-ada-002",
 )
 
+# Load local vector database and initialize retriever for top-3 docs given query
 faiss_db = "/Users/kkumbier/github/RAG-Chatbot/faiss_db" 
 index = FAISS.load_local(
     faiss_db, embedder, allow_dangerous_deserialization=True
 )
 
-llm = AzureOpenAI(
-    azure_deployment='gpt-35-turbo-instruct'
+retriever = index.as_retriever(k = 3)
+
+# Initialize chatbot LLM
+llm = AzureChatOpenAI(
+    azure_deployment='gpt-35-turbo'
 )
 
 # Generative response
 prompt_template = """
-    You are a helpful assistant who answers user questions based on multiple contexts given to you.
-
-    Keep your answer short and to the point.
+    You are a helpful assistant who answers user questions based on given context. Reply "I'm not sure, that information is not in my library" if text is irrelevant.
     
-    The evidence are the context of the pdf extract with metadata. 
-    
-    Carefully focus on the metadata 'REF' whenever answering. 
-    
-    Add citations to the value indicated by REF along with any other relevant citations. 
-    
-    Format all citations as [<author>, <year>].
-        
-    Reply "I'm not sure, that information is not in my library" if text is irrelevant.
-    
-    The PDF content is:
-    {pdf_extract}
+    Here is the context:
+    {context}
 """
 
-def make_message(query, prompt_template):
-    docs = index.similarity_search(query, k = 5)
-    content = "/n ".join([
-        d.page_content + " REF: " + d.metadata.get("reference") for d in docs
-    ])
+prompt = ChatPromptTemplate.from_messages(
+    [("system", prompt_template), ("user", "{question}")]
+)
 
-    messages = [
-        SystemMessage(content = prompt_template.format(pdf_extract = content)), HumanMessage(content = query)
-    ]
+# Initialize subchain for generating an answer once we've done retrieval
+answer = prompt | llm | StrOutputParser()
 
-    return messages
+# Initialize complete chain that calls retriver -> formats docs to string -> 
+# runs answer subchain -> returns just the answer and retrieved docs.
+format = itemgetter("docs") | RunnableLambda(format_docs)
 
-# Initialize streamlit app
+chain = (
+    RunnableParallel(question=RunnablePassthrough(), docs=retriever)
+    .assign(context=format)
+    .assign(answer=answer)
+    .pick(["answer", "docs"])
+)
+
+### Initialize streamlit app ###
 st.title(
     ":blue[P]ersister :blue[I]nformation :blue[C]hatbot for :blue[A]I-assisted :blue[R]esearch & :blue[D]evelopment"
 )
+
 prompt = st.session_state.get("prompt", [{"role": "system", "content": "none"}])
 
 for message in prompt:
@@ -79,10 +102,8 @@ with st.chat_message("picard"):
     botmsg = st.empty()
 
 if query is not None:    
-    msg = make_message(query, prompt_template)
     response = []
-    result = llm.invoke(msg)
-    result.replace('System: ', '')
+    result = cite_response(chain.invoke(query))
     response.append(result)
     botmsg.write(result)
 
@@ -91,11 +112,7 @@ if query is not None:
 
     # Store the updated prompt in the session state
     st.session_state["prompt"] = prompt
-    prompt.append({"role": "picard", "content": result})
-
-    # Store the updated prompt in the session state
-    st.session_state["prompt"] = prompt
-
+    
 if False:
     qry = "What are cancer persisters?"
     msg = make_message(qry, prompt_template)
