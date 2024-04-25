@@ -40,7 +40,7 @@ embedder = AzureOpenAIEmbeddings(
 )
 
 # Load local vector database and initialize retriever for top-3 docs given query
-faiss_db = "/Users/kkumbier/github/RAG-Chatbot/faiss_db" 
+faiss_db = "/home/kkumbier/RAG-Chatbot/faiss_db" 
 index = FAISS.load_local(
     faiss_db, embedder, allow_dangerous_deserialization=True
 )
@@ -53,19 +53,19 @@ llm = AzureChatOpenAI(
 )
 
 # Generative response
-prompt_template = """
+base_prompt = """
     You are a helpful assistant who answers user questions based on given context. Reply "I'm not sure, that information is not in my library" if text is irrelevant.
     
     Here is the context:
     {context}
 """
 
-prompt = ChatPromptTemplate.from_messages(
-    [("system", prompt_template), ("user", "{question}")]
+prompt_template = ChatPromptTemplate.from_messages(
+    [("system", base_prompt), ("user", "{question}")]
 )
 
 # Initialize subchain for generating an answer once we've done retrieval
-answer = prompt | llm | StrOutputParser()
+answer = prompt_template | llm | StrOutputParser()
 
 # Initialize complete chain that calls retriver -> formats docs to string -> 
 # runs answer subchain -> returns just the answer and retrieved docs.
@@ -98,7 +98,7 @@ with st.chat_message("user"):
     st.write(query)
 
 # Display an empty assistant message while waiting for the response
-with st.chat_message("picard"):
+with st.chat_message("picard", avatar = "🖖"):
     botmsg = st.empty()
 
 if query is not None:    
