@@ -1,11 +1,12 @@
 from langchain_community.document_loaders import AzureAIDocumentIntelligenceLoader
 
-from langchain.docstore.document import Document
 import os
 
-endpoint = os.environ["AZURE_DOCPROC_ENDPOINT"]
-key = os.environ["AZURE_DOCPROC_KEY"]
-file_path="/home/kkumbier/RAG-Chatbot/cabanos2021.pdf"
+endpoint = "https://awlab-docparse.cognitiveservices.azure.com/"
+#os.environ["AZURE_DOCPROC_ENDPOINT"]
+key = "f7f6c8a9405648928a6a1240352f2e32" 
+#os.environ["AZURE_DOCPROC_KEY"]
+file_path="/Users/karlkumbier/github/RAG-Chatbot/cabanos2021.pdf"
 
 loader = AzureAIDocumentIntelligenceLoader(
     api_endpoint=endpoint, 
