@@ -1,5 +1,7 @@
 import os
 import scipdf
+import re
+
 from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import AzureOpenAIEmbeddings
@@ -15,18 +17,17 @@ def docs_from_pdfs(library: str):
       List [Document]: list of langchain documents 
   """
   
-  # Initialize lab directories
-  lab_dirs = [d for d in os.listdir(library) if not d.startswith(".")]
+  # Initialize papers
+  papers = [d for d in os.listdir(library) if not d.startswith(".")]
   
   # Iterate over papers in lab subdirectories and parse docs
   docs = []
-  for d in lab_dirs:
-    papers = os.listdir(os.path.join(library, d))
-    for p in papers:
-      docs = docs + doc_from_pdf(os.path.join(library, d, p))
+  for p in papers:
+      docs.append(doc_from_pdf(os.path.join(library, p)))
       
   return docs
-    
+
+
 def doc_from_pdf(pdf_file: str):
   """ Parses pdf files first by section, then chunks sections into maximum 4000 
   character Documents. Metadata for documents includes: paper title, authors, year, section, chunk.
@@ -39,43 +40,76 @@ def doc_from_pdf(pdf_file: str):
   """
   # Parse pdf doc
   doc = scipdf.parse_pdf_to_dict(pdf_file) 
+  chunked_doc = []
+  
   title = doc.get("title")
   authors = doc.get("authors")
   year = get_year(doc.get("pub_date"))
   ref = clean_authors(authors) + ", "+ year
 
-  # TODO: abstract processing 
-  # Parse pdf by section
-  sec_docs = []
+  # rename paper in local library
+  file_split = pdf_file.split("/")
+  file_split[-1] = f"{ref}.pdf"
+  fout = "/".join(file_split).replace(".,", "").replace(" ", "-")
+  
+  if fout != pdf_file:
+    os.rename(pdf_file, fout)
+    
+  
+  # Parse pdf sections
+  sections = []
   for s in doc.get("sections"):
-    d = Document(page_content = s.get("text"))
+    d = Document(page_content=s.get("text"))
     d.metadata["section"] = s.get("heading")
     
     if len(d.page_content):
-      sec_docs.append(d)
-    
-  # Split sections by paragraph for maximal sized doc
-  doc_chunks = []
-  for d in sec_docs:
+      sections.append(d)
+      
+
+  # Split sections by paragraph
+  for s in sections:
       text_splitter = RecursiveCharacterTextSplitter(
-          chunk_size=4000,
-          separators=["\n"],
+          chunk_size=1,
+          separators=["\n\n", "\n"],
           chunk_overlap=0,
       )
       
-      chunks = text_splitter.split_text(d.page_content)
+      chunks = text_splitter.split_text(s.page_content)
+      
       for i, chunk in enumerate(chunks):
+          
           d = Document(
-              page_content=chunk, 
+              page_content=re.sub("^\n*", "", chunk), 
               metadata={"section": d.metadata["section"], "chunk": i}
           )
           
           d.metadata["title"] = title
           d.metadata["reference"] = ref
           d.metadata["authors"] = authors
-          doc_chunks.append(d)
+          d.metadata["type"] = "text"
+          chunked_doc.append(d)
+  
+  # Parse pdf figure captions
+  for f in doc.get("figures"):
+    label = f.get("figure_label")
+    
+    if label != "":
+      caption = clean_fig_caption(f.get("figure_caption"), label)
+      d = Document(page_content=caption)
+      d.metadata["figure"] = f"Figure {label}"
+      d.metadata["title"] = title
+      d.metadata["reference"] = ref
+      d.metadata["authors"] = authors
+      d.metadata["type"] = "figure"
+      chunked_doc.append(d)
+  
+  return chunked_doc
 
-  return doc_chunks
+
+def clean_fig_caption(caption: str, fig_id: int):
+  """ Cleans figure caption by removing Figure X. labels"""
+  caption = re.sub(f"^.*Figure {fig_id}.", "", caption)
+  return re.sub("^ ", "", caption)
 
 
 def clean_authors(author_list: str):
@@ -89,7 +123,7 @@ def clean_authors(author_list: str):
     return " and ".join(author_list)
   else:
     return author_list[0] + " et al."
-  
+
 
 def get_year(date: str):
   """ Gets year from date string"""
@@ -97,9 +131,9 @@ def get_year(date: str):
 
 
 if __name__ == "__main__":
-  
-  library = "/Users/kkumbier/github/persisters/papers/"
-  db = "/Users/kkumbier/RAG-Chatbot/faiss_db"
+
+  library = "/Users/kkumbier/github/persisters/papers/library"
+  db = "/Users/kkumbier/github/RAG-Chatbot/faiss_db"
   docs = docs_from_pdfs(library)
 
   embedder = AzureOpenAIEmbeddings(
