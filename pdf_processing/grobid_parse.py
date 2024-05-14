@@ -23,7 +23,8 @@ def docs_from_pdfs(library: str):
   # Iterate over papers in lab subdirectories and parse docs
   docs = []
   for p in papers:
-      docs.append(doc_from_pdf(os.path.join(library, p)))
+    pdf_file = os.path.join(library, p)
+    docs.append(doc_from_pdf(pdf_file))
 
   return docs
 
@@ -130,7 +131,14 @@ def get_year(doc: str):
   """ Gets year from paper. If date was not correctly parsed, take latest date of citations as proxy."""
   if doc.get("pub_date") == "" or doc.get("pub_date") is None:
     refs = doc.get("references")
-    year = max([int(r.get("year")) for r in refs])
+    year = [r.get("year") for r in refs]
+    year = [int(y) for y in year if y.isdigit()]
+    
+    if len(year):
+      year = max(year)
+    else:
+      year = "XXXX"
+      
     return(str(year))
   else:
     return doc.get("pub_date").split("-")[0]
