@@ -8,7 +8,7 @@ from langchain_openai import AzureOpenAIEmbeddings
 from langchain.vectorstores.faiss import FAISS
 
 def docs_from_pdfs(library: str):
-  """" Wrapper function for parsing pdf files and generating langchain Documents from a library. Library is assumed to be organized as a set of subject-specific subdirectories (e.g., labs, topics, etc.), each subdirectory containing pdf files.
+  """" Wrapper function for parsing pdf files and generating langchain Documents from a library.
 
   Args:
       library (str): path to library
@@ -24,7 +24,7 @@ def docs_from_pdfs(library: str):
   docs = []
   for p in papers:
       docs.append(doc_from_pdf(os.path.join(library, p)))
-      
+
   return docs
 
 
@@ -44,7 +44,7 @@ def doc_from_pdf(pdf_file: str):
   
   title = doc.get("title")
   authors = doc.get("authors")
-  year = get_year(doc.get("pub_date"))
+  year = get_year(doc)
   ref = clean_authors(authors) + ", "+ year
 
   # rename paper in local library
@@ -108,7 +108,8 @@ def doc_from_pdf(pdf_file: str):
 
 def clean_fig_caption(caption: str, fig_id: int):
   """ Cleans figure caption by removing Figure X. labels"""
-  caption = re.sub(f"^.*Figure {fig_id}.", "", caption)
+  caption = re.sub(f"^.*Figure {fig_id}.", "", caption) 
+  caption = re.sub(f"^.*Fig {fig_id}.", "", caption)
   return re.sub("^ ", "", caption)
 
 
@@ -125,9 +126,14 @@ def clean_authors(author_list: str):
     return author_list[0] + " et al."
 
 
-def get_year(date: str):
-  """ Gets year from date string"""
-  return date.split("-")[0]
+def get_year(doc: str):
+  """ Gets year from paper. If date was not correctly parsed, take latest date of citations as proxy."""
+  if doc.get("pub_date") == "" or doc.get("pub_date") is None:
+    refs = doc.get("references")
+    year = max([int(r.get("year")) for r in refs])
+    return(str(year))
+  else:
+    return doc.get("pub_date").split("-")[0]
 
 
 if __name__ == "__main__":
