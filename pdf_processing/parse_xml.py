@@ -3,15 +3,18 @@ import scipdf
 import bs4 as bs
 import re
 import ntpath
+import math
+import time
 
 from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import AzureOpenAIEmbeddings
-from langchain.vectorstores.faiss import FAISS
+from langchain_community.vectorstores.faiss import FAISS
 
 UNKNOWN_AUTHORS = "Unknown authors"
 UNKNOWN_YEAR = "Unknown year"
 UNKNOWN_TITLE = "Unknown title"
+EMBEDDING_TPM = 300000
 
 def docs_from_pdfs(library: str):
   """" Wrapper function for parsing pdf files and generating langchain Documents from a library.
@@ -30,8 +33,8 @@ def docs_from_pdfs(library: str):
   docs = []
   for p in papers:
     try:
-      pdf_file = os.path.join(library, p)
-      docs.append(doc_from_xml(pdf_file))
+      xml_file = os.path.join(library, p)
+      docs += doc_from_xml(xml_file)
     except:
       print(f"Error processing: {p}")
 
@@ -138,6 +141,7 @@ def get_year(doc: str):
   
   if year in [None, ""]:
     ref_years = [r.get("year") for r in doc.get("references")]
+    ref_years = [y for y in ref_years if y is not None]
     ref_years = [int(y) for y in ref_years if y.isdigit()]
     
     if len(ref_years):
@@ -170,6 +174,16 @@ def get_reference(authors: str, year: str, fpath: str):
     
   return f"{ref_author} ({year})"
 
+def partition(lst, n):
+  """Yield successive n-sized chunks from lst."""
+  for i in range(0, len(lst), n):
+    yield lst[i:i + n]
+    
+def estimate_tokens(docs):
+  """Estimates number of tokens in doc list using 2 tokens / word"""
+  tokens = [len(d.page_content.split(" ")) for d in docs]
+  return 2 * sum(tokens) 
+  
 if __name__ == "__main__":
 
   phome = "/Users/kkumbier/github/persisters/"
@@ -179,9 +193,24 @@ if __name__ == "__main__":
   
   docs = docs_from_pdfs(library)
 
-  embedder = AzureOpenAIEmbeddings(
-    deployment="text-embedding-ada-002",
-  )
+  # Estimate number of embedding batches from token counts
+  n_tokens = estimate_tokens(docs) 
+  n_batch = math.ceil(n_tokens / EMBEDDING_TPM)
+  batch_size = math.ceil(len(docs) / n_batch)
   
-  index = FAISS.from_documents(docs, embedder)
+  embedder = AzureOpenAIEmbeddings(
+    deployment="text-embedding-3-large-1",
+  )
+
+  index = None
+  pdocs = partition(docs, batch_size) 
+  
+  for i, d in enumerate(pdocs):  
+    print(f"Embedding doc batch {i}")
+    if i == 0:
+      index = FAISS.from_documents(d, embedder)
+    else:
+      time.sleep(60)
+      index.add_documents(d)
+  
   index.save_local(db)

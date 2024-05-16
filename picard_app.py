@@ -1,46 +1,19 @@
 # Persister Information Center for AI-assisted Research and Development
 from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
-from langchain.prompts import ChatPromptTemplate
 from langchain.vectorstores.faiss import FAISS
 
 import streamlit as st
 import os
 import time
 import json
+import cohere
 
-from operator import itemgetter
-from typing import List
+from rag import RAG, format_docs
 
-from langchain_core.documents import Document
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import (
-    RunnableLambda,
-    RunnableParallel,
-    RunnablePassthrough,
-)
-
-def format_docs(docs: List[Document]) -> str:
-    """Convert Documents to a single string."""
-    formatted = [
-        f"Article Reference: {doc.metadata['reference']}\n\n \n\nArticle Snippet: {doc.page_content}"
-        for doc in docs
-    ]
-    return "\n\n" + "\n\n".join(formatted)
-
-def cite_response(result: str) -> str:
-    """Reference answer based on doc(s) used to generate response"""
-    refs = [d.metadata.get("reference") for d in result.get("docs")]
-    refs = "; ".join(set(refs))
-
-    if result.get("answer") == "I'm not sure, that information is not in my library":
-        return result.get("answer")        
-    else:
-        return f"{result.get("answer")} [{refs}]", result.get("docs") 
-        
 
 # Initialize embedder used to vectorize queries
 embedder = AzureOpenAIEmbeddings(
-    deployment="text-embedding-ada-002",
+    deployment="text-embedding-3-large-1",
 )
 
 # Load local vector database and initialize retriever for top-3 docs given query
@@ -49,38 +22,33 @@ index = FAISS.load_local(
     faiss_db, embedder, allow_dangerous_deserialization=True
 )
 
-retriever = index.as_retriever(k = 3)
+# Load local vector database and initialize retriever for top-3 docs given query
+faiss_db = "/Users/kkumbier/github/RAG-Chatbot/faiss_db" 
+index = FAISS.load_local(
+    faiss_db, embedder, allow_dangerous_deserialization=True
+)
 
 # Initialize chatbot LLM
-llm = AzureChatOpenAI(
-    azure_deployment='gpt-35-turbo'
+gpt4 = AzureChatOpenAI(
+    azure_deployment='gpt-4-turbo-128k'
 )
 
-# Generative response
-base_prompt = """
-    You are a helpful assistant who answers user questions based on given context. Reply "I'm not sure, that information is not in my library" if text is irrelevant.
-    
-    Here is the context:
-    {context}
-"""
-
-prompt_template = ChatPromptTemplate.from_messages(
-    [("system", base_prompt), ("user", "{question}")]
+gpt35 = AzureChatOpenAI(
+    azure_deployment='gpt-35-turbo-16k'
 )
 
-# Initialize subchain for generating an answer once we've done retrieval
-answer = prompt_template | llm | StrOutputParser()
+co = cohere.Client(os.environ["COHERE_API_KEY"])
 
-# Initialize complete chain that calls retriver -> formats docs to string -> 
-# runs answer subchain -> returns just the answer and retrieved docs.
-format = itemgetter("docs") | RunnableLambda(format_docs)
-
-chain = (
-    RunnableParallel(question=RunnablePassthrough(), docs=retriever)
-    .assign(context=format)
-    .assign(answer=answer)
-    .pick(["answer", "docs"])
+ragbot = RAG(
+    model=gpt4,
+    index=index,
+    hyde_model=gpt35,
+    hyde_embedder=embedder,
+    rerank_model=co
 )
+
+query = "What are cancer persisters?"
+response = ragbot.generate_response(query, k=10)
 
 ################################################################################
 # Initialize streamlit app
@@ -121,7 +89,7 @@ def click_show_refs():
 # Initialize response scoring callbacks
 def save_response(log_dir, session_id, active_idx, history, skey):
     
-    response_id = len(history)    
+    response_id = len(history) / 2   
     score = st.session_state[f"{response_id}_{active_idx}"]
     
     # Update reference score
@@ -155,7 +123,7 @@ if query is not None:
         st.write(query)
 
     # Invoke chain to generate LLM response
-    answer, refs = cite_response(chain.invoke(query))
+    answer, refs = ragbot.generate_response(query, k=10)
     refs = [{"text": format_docs([doc]), "score": 1} for doc in refs] 
     
     with st.chat_message("picard", avatar="🖖"):
