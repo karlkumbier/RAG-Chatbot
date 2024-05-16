@@ -1,4 +1,3 @@
-from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.vectorstores.faiss import FAISS
 from langchain_core.documents import Document
@@ -6,30 +5,6 @@ from langchain_core.output_parsers import StrOutputParser
 
 from typing import List
 import numpy as np
-import cohere
-import os
-
-# Initialize embedder used to vectorize queries
-embedder = AzureOpenAIEmbeddings(
-    deployment="text-embedding-3-large-1",
-)
-
-# Load local vector database and initialize retriever for top-3 docs given query
-faiss_db = "/Users/kkumbier/github/RAG-Chatbot/faiss_db" 
-index = FAISS.load_local(
-    faiss_db, embedder, allow_dangerous_deserialization=True
-)
-
-# Initialize chatbot LLM
-gpt4 = AzureChatOpenAI(
-    azure_deployment='gpt-4-turbo-128k'
-)
-
-gpt35 = AzureChatOpenAI(
-    azure_deployment='gpt-35-turbo-16k'
-)
-
-co = cohere.Client(os.environ["COHERE_API_KEY"])
 
 class RAG:
     """ Implements retrieval augmented generation system. """

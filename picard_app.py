@@ -19,19 +19,21 @@ embedder = AzureOpenAIEmbeddings(
 )
 
 # Load local vector database and initialize retriever for top-3 docs given query
-faiss_db = "/Users/kkumbier/github/RAG-Chatbot/faiss_db" 
+faiss_db = os.environ["PICARD_DB"] 
 index = FAISS.load_local(
     faiss_db, embedder, allow_dangerous_deserialization=True
 )
 
 # Initialize chatbot LLM
 gpt4 = AzureChatOpenAI(
-    azure_deployment='gpt-4-turbo-128k'
+    azure_deployment='gpt-4-turbo-128k',
+    streaming=True
 )
 
 gpt35 = AzureChatOpenAI(
     azure_deployment='gpt-35-turbo-16k',
-    temperature=1.25
+    temperature=1.25,
+    streaming=True
 )
 
 co = cohere.Client(os.environ["COHERE_API_KEY"])
@@ -47,9 +49,9 @@ ragbot = RAG(
 def generate_response(query, context, chain):
     return chain.stream({"question": query, "context":context})
 
-async def generate_thinking(query):
+def generate_thinking(query):
     base_prompt = """
-        Generate a statement to let users know you are taking a moment to think about their question. Your statement should be witty and playful.
+        Generate a statement to let users know you are taking a moment to think about their question. Your statement should be witty and playful
         
         Question: {question}
         """
@@ -57,7 +59,7 @@ async def generate_thinking(query):
     prompt = ChatPromptTemplate.from_messages(
         [("system", base_prompt), ("user", "{question}")])
     chain = prompt | gpt35 | StrOutputParser()
-    return chain.astream({"question": query})
+    return chain.stream({"question": query})
 
                 
 ################################################################################
@@ -116,8 +118,11 @@ def save_response(log_dir, session_id, active_idx, history, skey):
 
 # Print chat history 
 for message in history:
+    
     if message["content"] is not None:
+        
         avatar = "🖖" if message["role"] == "picard" else None
+        
         with st.chat_message(message["role"], avatar = avatar):
             st.write(message["content"])
 
