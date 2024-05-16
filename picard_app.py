@@ -9,9 +9,12 @@ import os
 import time
 import json
 import cohere
+import git
 
 from rag import RAG, format_docs
 
+repo = git.Repo(search_parent_directories=True)
+sha = repo.head.object.hexsha
 
 # Initialize embedder used to vectorize queries
 embedder = AzureOpenAIEmbeddings(
@@ -111,7 +114,7 @@ def save_response(log_dir, session_id, active_idx, history, skey):
     
     # Save active chat block to json file
     fout = os.path.join(log_dir, f"log_{session_id}-{response_id}")
-    out = {"query": history[-2], "response": history[-1]}
+    out = {"query": history[-2], "response": history[-1], "githash":sha}
     
     with open(fout, 'w') as f:
         json.dump(out, f, indent=4)
