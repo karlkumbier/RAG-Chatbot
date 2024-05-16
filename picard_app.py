@@ -1,6 +1,8 @@
 # Persister Information Center for AI-assisted Research and Development
 from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
-from langchain.vectorstores.faiss import FAISS
+from langchain_community.vectorstores.faiss import FAISS
+from langchain.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 import streamlit as st
 import os
@@ -22,19 +24,14 @@ index = FAISS.load_local(
     faiss_db, embedder, allow_dangerous_deserialization=True
 )
 
-# Load local vector database and initialize retriever for top-3 docs given query
-faiss_db = "/Users/kkumbier/github/RAG-Chatbot/faiss_db" 
-index = FAISS.load_local(
-    faiss_db, embedder, allow_dangerous_deserialization=True
-)
-
 # Initialize chatbot LLM
 gpt4 = AzureChatOpenAI(
     azure_deployment='gpt-4-turbo-128k'
 )
 
 gpt35 = AzureChatOpenAI(
-    azure_deployment='gpt-35-turbo-16k'
+    azure_deployment='gpt-35-turbo-16k',
+    temperature=1.25
 )
 
 co = cohere.Client(os.environ["COHERE_API_KEY"])
@@ -47,9 +44,22 @@ ragbot = RAG(
     rerank_model=co
 )
 
-query = "What are cancer persisters?"
-response = ragbot.generate_response(query, k=10)
+def generate_response(query, context, chain):
+    return chain.stream({"question": query, "context":context})
 
+async def generate_thinking(query):
+    base_prompt = """
+        Generate a statement to let users know you are taking a moment to think about their question. Your statement should be witty and playful.
+        
+        Question: {question}
+        """
+
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", base_prompt), ("user", "{question}")])
+    chain = prompt | gpt35 | StrOutputParser()
+    return chain.astream({"question": query})
+
+                
 ################################################################################
 # Initialize streamlit app
 ################################################################################
@@ -123,16 +133,23 @@ if query is not None:
         st.write(query)
 
     # Invoke chain to generate LLM response
-    answer, refs = ragbot.generate_response(query, k=10)
-    refs = [{"text": format_docs([doc]), "score": 1} for doc in refs] 
-    
-    with st.chat_message("picard", avatar="🖖"):
-        st.write(answer)
+    docs = ragbot.get_context(query, k=5)
+    context = format_docs(docs)
 
+    with st.chat_message("picard", avatar="🖖"):
+        
+        st.write_stream(generate_thinking(query))
+        
+        response = st.write_stream(
+            generate_response(query, context, ragbot.rag_chain)
+        )
+
+    refs = [{"text": format_docs([doc]), "score": 1} for doc in docs] 
+    
     # Update history with picard's response
     history.append({
         "role": "picard", 
-        "content": answer, 
+        "content": response, 
         "refs": refs
     })
     

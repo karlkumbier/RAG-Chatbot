@@ -103,9 +103,8 @@ class RAG:
         return docs
 
 
-    def generate_response(self, query, k, hyde=False, rerank=False, rerank_k=5):
-        """ Makes calls to retriever, reranker (optionally) and RAG chain to generate responses to user queries."""
-        
+    def get_context(self, query, k, hyde=False, rerank=False, rerank_k=5):
+        """ Retrieves and (optionally) filters docs """
         docs = self.retrieve(query, k, hyde)
         
         # Filter docs based on cohere reanker if specified
@@ -114,9 +113,13 @@ class RAG:
                 raise Exception            
             docs = select_reranked(query, docs, self.rerank_model, rerank_k)
 
-        response = self.rag_chain.invoke(
-            {"context":format_docs(docs), "question":query}
-        )
+        return docs
+    
+    def generate_response(self, query, k, hyde=False, rerank=False, rerank_k=5):
+        """ Makes calls to retriever, reranker (optionally) and RAG chain to generate responses to user queries."""
+        docs = self.get_context(query, k, hyde, rerank, rerank_k)
+        context = format_docs(docs)
+        response = self.rag_chain.invoke({"context":context, "question":query})
         
         return response, docs   
 
