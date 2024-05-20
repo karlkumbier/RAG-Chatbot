@@ -41,6 +41,7 @@ gpt35 = AzureChatOpenAI(
 
 co = cohere.Client(os.environ["COHERE_API_KEY"])
 
+
 ragbot = RAG(
     model=gpt4,
     index=index,
@@ -56,15 +57,18 @@ def generate_thinking(query):
     base_prompt = """
         Generate a statement to let users know you are taking a moment to think about their question. Your statement should be witty and playful
         
-        Question: {question}
+        Question: {query}
         """
-
+    # Test that streaming works using non AzureOpenAI
+    #for event in co.chat_stream(message=base_prompt):
+    #    if event.event_type == "text-generation":
+    #        yield(event.text)
     prompt = ChatPromptTemplate.from_messages(
-        [("system", base_prompt), ("user", "{question}")])
+        [("system", base_prompt), ("user", "{query}")])
     chain = prompt | gpt35 | StrOutputParser()
-    return chain.stream({"question": query})
+    
+    return chain.stream({"query": query})
 
-                
 ################################################################################
 # Initialize streamlit app
 ################################################################################
