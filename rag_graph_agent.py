@@ -1,24 +1,20 @@
 # Persister Information Center for AI-assisted Research and Development
 from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain_community.vectorstores.faiss import FAISS
-from langchain.prompts import ChatPromptTemplate
 
 from langchain_core.prompts import PromptTemplate
+from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import (
-    RunnablePassthrough, 
-    RunnableParallel, 
-    RunnableLambda
-)
-from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
+from langgraph.graph import END, StateGraph
 
+from typing_extensions import TypedDict
+from typing import List
 
 import git
 import os
+import re
 import pandas as pd
-
 from rag import format_docs
-from operator import itemgetter
 
 repo = git.Repo(search_parent_directories=True)
 sha = repo.head.object.hexsha
@@ -50,30 +46,21 @@ gpt35 = AzureChatOpenAI(
 
 RAG_LLM = gpt4
 ROUTER_LLM = gpt35
+PLOT_LLM = gpt35
+
+def extract_python_code(text):
+    pattern = r'```python\s(.*?)```'
+    matches = re.findall(pattern, text, re.DOTALL)
+    if not matches:
+        return None
+    else:
+        return matches[0]
 
 ###############################################################################
 # Initialize agent for performing retrieval augmented generation
 ###############################################################################
-#rag_base_prompt = """
-#    Answer the question below using the provided context. The context provided are snippets from academic articles, with ARTICLE REFERENCE, formatted as AUTHOR (YEAR), indicated before each snippet. Cite any part of your answer that depends on a provided snippet using the ARTICLE REFERENCE associated with each snippet. Use inline citations formatted as (AUTHOR, YEAR)
-#    
-#    Do not use information outside of the provided context to answer the question.
-#    
-#    If the context is not relevant to the question, reply "I can't determine that from my available information":
-#
-#    Context: {context}
-#
-#    Question: {question}
-#
-#    Answer:
-#"""
-#
-#rag_prompt = ChatPromptTemplate.from_messages(
-#    [("system", rag_base_prompt), ("user", "{question}")]
-#)
-
-rag_prompt = PromptTemplate(template="""
-    Answer the question below using the provided context. The context provided are snippets from academic articles, with ARTICLE REFERENCE, formatted as AUTHOR (YEAR), indicated before each snippet. Cite any part of your answer that depends on a provided snippet using the ARTICLE REFERENCE associated with each snippet. Use inline citations formatted as (AUTHOR, YEAR)
+rag_prompt = PromptTemplate.from_template(template="""
+    Answer the question below using the provided context. The context provided are snippets from academic articles. An ARTICLE REFERENCE, formatted as AUTHOR (YEAR), is indicated before each snippet. Cite any part of your answer that depends on a provided snippet using the ARTICLE REFERENCE associated with each snippet. Use inline citations formatted as (AUTHOR, YEAR).
     
     Do not use information outside of the provided context to answer the question.
     
@@ -84,28 +71,15 @@ rag_prompt = PromptTemplate(template="""
     Question: {question}
 
     Answer:
-    """,
-    input_variables=["question", "docs"]
+    """
 )
 
-
 rag_chain = rag_prompt | RAG_LLM | StrOutputParser()
-#formatter = itemgetter("docs") | RunnableLambda(format_docs)
-
-
-#rag_agent = (
-#    RunnableParallel(question=RunnablePassthrough(), docs=retriever)
-#    .assign(context=formatter)
-#    .assign(answer=answer)
-#    .pick(["answer", "docs"])
-#)
-
-#answer, docs = rag_agent.invoke("what are cancer persisters?")
 
 ###############################################################################
-# Initialize agent for working with pandas DataFrames
+# Initialize agent for generating figures from pandas DataFrames
 ###############################################################################
-x = pd.read_csv("sandbox/gene_de.csv").filter(
+df = pd.read_csv("sandbox/gene_de.csv").filter(
     ["SYMBOL", 
     "CellLine", 
     "pvalue", 
@@ -115,12 +89,65 @@ x = pd.read_csv("sandbox/gene_de.csv").filter(
     ]
 )
 
-data_agent = create_pandas_dataframe_agent(
-    gpt35, 
-    x, 
-    verbose=True,
-    return_intermediate_steps=True
+plot_base_template = """
+    The dataset is ALREADY loaded into a DataFrame named 'df'. DO NOT load the data again.
+    
+    The DataFrame has the following columns: {column_names}
+    
+    Before plotting, ensure the data is ready:
+    1. Check if columns that are supposed to be numeric are recognized as such. If not, attempt to convert them.
+    2. Handle NaN values by filling with mean or median.
+    
+    Provide SINGLE CODE BLOCK with a solution using Pandas and Plotly plots in a single figure to address the following query:
+    
+    {question}
+
+    - USE SINGLE CODE BLOCK with a solution. 
+    - Do NOT EXPLAIN the code 
+    - DO NOT COMMENT the code. 
+    - ALWAYS WRAP UP THE CODE IN A SINGLE CODE BLOCK.
+    - The code block must start and end with ```
+    
+    - Example code format ```code```
+
+    - Colors to use for background and axes of the figure : #F0F0F6
+"""
+
+plot_prompt = ChatPromptTemplate.from_messages(
+    [("system", plot_base_template), ("user", "{question}")]
 )
+
+plot_chain = plot_prompt | PLOT_LLM | StrOutputParser()
+
+
+###############################################################################
+# Initialize agent for debugging code
+###############################################################################
+debug_base_template = """
+    Analyze the following CODE BLOCK and ERROR MESSAGE to diagnose the problem 
+    with the code. Propose a solution that will resolve the error message.
+    Provide NEW CODE BLOCK with a solution. Provide any explanation for your prosed solution after the NEW CODE BLOCK.      
+    
+    - The NEW CODE BLOCK must start and end with ``` 
+    - Example NEW CODE BLOCK format ```code```
+    
+    
+    CODE BLOCK:
+    
+    {code}
+    
+    ERROR MESSAGE:
+    
+    {error_msg}
+    
+    NEW CODE BLOCK:
+"""
+
+debug_prompt = ChatPromptTemplate.from_messages(
+    [("system", debug_base_template)]
+)
+
+debug_chain = debug_prompt | PLOT_LLM | StrOutputParser()
 
 ###############################################################################
 # Initialize routing chain
@@ -142,35 +169,20 @@ router_template =  PromptTemplate.from_template(
 
 router_chain = router_template | ROUTER_LLM | StrOutputParser()
 
-def route(info):
-    print(info)
-    if "data_analysis" in info["topic"].lower():
-        return data_agent
-    else:
-        return rag_chain
-    
-######### TESTING RAG graph
-from typing_extensions import TypedDict
-from typing import List
-
-### State
+###############################################################################
+# Initialize agent graph
+###############################################################################
 class GraphState(TypedDict):
     question : str
     generation : str
-    analysis : str
+    code : str
     documents : List[str]
+    error_msg: str
+    attempts: int
     
 
 def retrieve(state):
-    """
-    Retrieve documents from vectorstore
-
-    Args:
-        state (dict): The current graph state
-
-    Returns:
-        state (dict): New key added to state, documents, that contains retrieved documents
-    """
+    """Retrieve documents from vectorstore."""
     print("---RETRIEVE---")
     question = state["question"]
 
@@ -180,15 +192,7 @@ def retrieve(state):
     return state
 
 def generate(state):
-    """
-    Generate answer using RAG on retrieved documents
-
-    Args:
-        state (dict): The current graph state
-
-    Returns:
-        state (dict): New key added to state, generation, that contains LLM generation
-    """
+    """Generate answer using RAG on retrieved documents."""
     print("---GENERATE---")
     question = state["question"]
     docs = format_docs(state["documents"])
@@ -199,55 +203,71 @@ def generate(state):
     return state
 
 def analyze(state):
-    """
-    Performs analysis to answer user question
-
-    Args:
-        state (dict): The current graph state
-
-    Returns:
-        state (dict): New key added to state, generation, that contains LLM analysis
-    """
+    """Perform analysis to answer user question."""
     print("---Analyze---")
     question = state["question"]
     
     # RAG generation
-    analysis = data_agent.invoke(question)
-    state["analysis"] = analysis
+    if state["error_message"] is None:
+        code = plot_chain.invoke({
+            "question": question, 
+            "column_names": df.columns
+        })
+
+        code = extract_python_code(code)
+        code = code.replace("fig.show()", "")
+        state["code"] = code
+        state["attempts"] = 1
+        
+    else:
+        code = debug_chain.invoke({
+            "code": state["code"], 
+            "error_message": state["error_message"]
+        })
+
+        code = extract_python_code(code)
+        code = code.replace("fig.show()", "")
+        state["code"] = code  
+        state["attempts"] += 1
+    
+    try:
+        exec(code)
+        state["error_msg"] = None
+    except Exception as e:
+        state["error_msg"] = e
+    
     return state
 
 def route_question(state):
-    """
-    Route question to web search or RAG.
-
-    Args:
-        state (dict): The current graph state
-
-    Returns:
-        str: Next node to call
-    """
+    """Route question to web search or RAG."""
 
     print("---ROUTE QUESTION---")
     question = state["question"]
-    print(question)
     source = router_chain.invoke({"question": question})  
-    print(source)
     
     if source == 'data_analysis':
-        print("---ROUTE QUESTION TO ANALYSIS ENGINE---")
+        print("---ROUTING QUESTION TO ANALYSIS ENGINE---")
         return "data_analysis"
     else:
-        print("---ROUTE QUESTION TO RAG---")
+        print("---ROUTING QUESTION TO RAG---")
         return "text_summary"
+
+def debug(state): 
+    """ Attempt to debug code if error message generated"""
+    if state["error_msg"] is None:
+        return "complete"
+    elif state["attempts"] > 5:
+        return "max_attempts"
+    else:
+        print("---DEBUGGING---")
+        return "debug"
     
 
-from langgraph.graph import END, StateGraph
-workflow = StateGraph(GraphState)
-
 # Define the nodes
-workflow.add_node("analyze", analyze) # web search
-workflow.add_node("retrieve", retrieve) # retrieve
-workflow.add_node("generate", generate) # generatae
+workflow = StateGraph(GraphState)
+workflow.add_node("analyze", analyze)
+workflow.add_node("retrieve", retrieve)
+workflow.add_node("generate", generate)
 
 workflow.set_conditional_entry_point(
     route_question,
@@ -259,17 +279,52 @@ workflow.set_conditional_entry_point(
 
 workflow.add_edge("retrieve", "generate")
 workflow.add_edge("generate", END)
-workflow.add_edge("analyze", END)
+
+workflow.add_conditional_edges(
+    "analyze",
+    debug,
+    {
+        "complete": END,
+        "max_attempts": END,
+        "debug":"analyze"
+    }
+)
 
 app = workflow.compile()
 print(app.get_graph().draw_ascii())
 
-inputs = {"question": "What are cancer persisters?"}
 
-for output in app.stream(inputs):
-    for key, value in output.items():
-        print(f"Finished running: {key}:")
+result_rag = app.invoke({"question": "What are cancer persisters?"})
+result_rag.get("generation")
 
-print(value["generation"])
+result_analysis = app.invoke({"question": "Plot pvalue versus log2FoldChange"}) 
+result_analysis.get("analysis")
 
-result = app.invoke({"question": "Plot -log10 p-value versus log2 fold change. Generate a distinct plot for each cell line"})
+result_analysis = app.invoke({
+    "question": "Plot -log10 pvalue versus log2FoldChange"
+}) 
+
+exec(result_analysis.get("analysis"))
+result_analysis.get("error_msg")
+
+result_debug = debug_chain.invoke({
+    "question":"Plot -log10 pvalue versus log2FoldChange",
+    "error_msg": result_analysis.get("error_msg"),
+    "column_names": df.columns,
+    "code": result_analysis.get("analysis")
+})
+
+
+# loop
+try:
+    exec(extract_python_code(result_debug))
+except Exception as e:
+    error_msg = e
+    
+result_debug = debug_chain.invoke({
+    "error_msg": error_msg,
+    "code": extract_python_code(result_debug)
+})
+
+exec(extract_python_code(result_debug))
+print(result_debug)
