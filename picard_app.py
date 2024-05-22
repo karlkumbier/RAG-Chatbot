@@ -1,78 +1,48 @@
 # Persister Information Center for AI-assisted Research and Development
-from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
-from langchain_community.vectorstores.faiss import FAISS
-from langchain.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-
 import streamlit as st
 import os
-import time
 import json
-import cohere
 import git
+import time
 
-from rag import RAG, format_docs
+from agent.agent_graph import agent
+from agent.utils import format_docs
+from agent.models import HOLD_LLM
+
+from pandas import read_csv
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 repo = git.Repo(search_parent_directories=True)
 sha = repo.head.object.hexsha
 
-# Initialize embedder used to vectorize queries
-embedder = AzureOpenAIEmbeddings(
-    deployment="text-embedding-3-large-1",
-)
 
-# Load local vector database and initialize retriever for top-3 docs given query
-faiss_db = os.environ["PICARD_DB"] 
-index = FAISS.load_local(
-    faiss_db, embedder, allow_dangerous_deserialization=True
-)
+data_dir = "/Users/kkumbier/github/persisters/data/"
 
-# Initialize chatbot LLM
-gpt4 = AzureChatOpenAI(
-    azure_deployment='gpt-4-turbo-128k',
-    streaming=True
-)
+screens = [
+    "012023001-RNASEQ-CELL",
+    "042023001-RNASEQ-CELL",
+    "122023001-RNASEQ-CELL",
+    "052023001-CRISPR-CELL"
+]
 
-gpt35 = AzureChatOpenAI(
-    azure_deployment='gpt-35-turbo-16k',
-    temperature=1.25,
-    streaming=True
-)
-
-co = cohere.Client(os.environ["COHERE_API_KEY"])
-
-
-ragbot = RAG(
-    model=gpt4,
-    index=index,
-    hyde_model=gpt35,
-    hyde_embedder=embedder,
-    rerank_model=co
-)
-
-def generate_response(query, context, chain):
-    return chain.stream({"question": query, "context":context})
 
 def generate_thinking(query):
-    base_prompt = """
+    prompt = PromptTemplate.from_template(template="""
         Generate a statement to let users know you are taking a moment to think about their question. Your statement should be witty and playful
         
         Question: {query}
         """
-    # Test that streaming works using non AzureOpenAI
-    #for event in co.chat_stream(message=base_prompt):
-    #    if event.event_type == "text-generation":
-    #        yield(event.text)
-    prompt = ChatPromptTemplate.from_messages(
-        [("system", base_prompt), ("user", "{query}")])
-    chain = prompt | gpt35 | StrOutputParser()
+    )
+    
+    chain = prompt | HOLD_LLM | StrOutputParser()
     
     return chain.stream({"query": query})
 
 ################################################################################
 # Initialize streamlit app
 ################################################################################
-skey = {"yes": 0, "ambiguous": 1, "no":2}
+score_key = {"yes": 0, "ambiguous": 1, "no":2}
 log_dir = "./logs/"
 os.makedirs(log_dir, exist_ok=True)
 
@@ -106,14 +76,14 @@ def click_show_refs():
     st.session_state.show_refs = not st.session_state.show_refs
 
 # Initialize response scoring callbacks
-def save_response(log_dir, session_id, active_idx, history, skey):
+def save_response(log_dir, session_id, active_idx, history, score_key):
     
     response_id = int(len(history) / 2)
     score = st.session_state[f"{response_id}_{active_idx}"]
     
     # Update reference score
     refs = history[-1].get("refs")
-    refs[active_idx]["score"] = skey[score]
+    refs[active_idx]["score"] = score_key[score]
     history[-1]["refs"] = refs
     
     # Save active chat block to json file
@@ -123,6 +93,24 @@ def save_response(log_dir, session_id, active_idx, history, skey):
     with open(fout, 'w') as f:
         json.dump(out, f, indent=4)
 
+
+with st.sidebar:
+    selected_screen = st.selectbox(
+        "Choose a dataset",
+        screens
+    )
+
+    input_dir = os.path.join(data_dir, selected_screen, "level2")
+    
+    if "CRISPR" in selected_screen:
+        input_file = "crispr.csv"
+    else:
+        input_file = "gene_de.csv"
+    
+    
+    df_baseline = read_csv(os.path.join(input_dir, input_file))
+    st.write(df_baseline)
+    
 # Print chat history 
 for message in history:
     
@@ -144,19 +132,24 @@ if query is not None:
     with st.chat_message("user"):
         st.write(query)
 
-    # Invoke chain to generate LLM response
-    docs = ragbot.get_context(query, k=5)
-    context = format_docs(docs)
-
+    # Invoke agent
     with st.chat_message("picard", avatar="🖖"):
         
         st.write_stream(generate_thinking(query))
+        result = agent.invoke({"question": query, "df":df_baseline})
         
-        response = st.write_stream(
-            generate_response(query, context, ragbot.rag_chain)
-        )
-
-    refs = [{"text": format_docs([doc]), "score": 1} for doc in docs] 
+        if result.get("type") == "generate":
+            docs = result.get("documents")
+            refs = [{"text": format_docs([d]), "score": 1} for d in docs]
+            response = result.get("generation")
+        else:
+            refs = None
+            code = result.get("code")[-1]
+            df = df_baseline.copy()
+            exec(code)                        
+            response = fig
+            
+        st.write(response)
     
     # Update history with picard's response
     history.append({
@@ -171,7 +164,6 @@ if query is not None:
     st.session_state.ref_idx = 0
     st.session_state.show_refs = False
     
-
 
 if refs is not None:
     
@@ -211,11 +203,11 @@ if refs is not None:
                     session_id=session_id, 
                     active_idx=active_idx,
                     history=history,
-                    skey=skey
+                    score_key=score_key
                 )
             ) 
             
             # Update reference history in session state
-            active_ref["score"] = skey[choice]
+            active_ref["score"] = score_key[choice]
             refs[active_idx] = active_ref
             st.session_state.history[-1]["refs"] = refs

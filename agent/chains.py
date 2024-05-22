@@ -2,7 +2,7 @@
 from langchain_core.prompts import PromptTemplate
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from models import *
+from .models import *
 
 ###############################################################################
 # Initialize chain for generating response from context

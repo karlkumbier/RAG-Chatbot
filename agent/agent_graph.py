@@ -3,8 +3,8 @@ from langgraph.graph import StateGraph
 
 from typing_extensions import TypedDict
 from typing import List
-from chains import *
-from utils import *
+from .chains import *
+from .utils import *
 
 import pandas as pd
 
@@ -14,6 +14,7 @@ class GraphState(TypedDict):
     code : List[str]
     documents : List[str]
     error_msg: List[str]
+    type: str
     attempts: int
     df: pd.DataFrame
     
@@ -29,6 +30,7 @@ def retrieve(state):
 
 def generate(state):
     """Generate answer using RAG on retrieved documents."""
+    state["type"] = "generate"
     question = state["question"]
     docs = format_docs(state["documents"])
     
@@ -39,6 +41,7 @@ def generate(state):
 
 def analyze(state):
     """Perform analysis to answer user question."""
+    state["type"] = "analyze"
     question = state["question"]
     
     # RAG generation

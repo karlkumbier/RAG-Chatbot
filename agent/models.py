@@ -37,4 +37,4 @@ RAG_LLM = gpt4
 ROUTER_LLM = cold_gpt35
 PLOT_LLM = gpt4
 DEBUG_LLM = gpt4
-ONHOLD_LLM = hot_gpt35
+HOLD_LLM = hot_gpt35
