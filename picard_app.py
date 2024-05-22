@@ -46,6 +46,8 @@ score_key = {"yes": 0, "ambiguous": 1, "no":2}
 log_dir = "./logs/"
 os.makedirs(log_dir, exist_ok=True)
 
+picard_avatar = "./avatar.png"
+
 st.title(
     ":blue[P]ersister :blue[I]nformation :blue[C]hatbot for :blue[A]I-assisted :blue[R]esearch & :blue[D]evelopment"
 )
@@ -116,7 +118,7 @@ for message in history:
     
     if message["content"] is not None:
         
-        avatar = "🖖" if message["role"] == "picard" else None
+        avatar = picard_avatar if message["role"] == "picard" else None
         
         with st.chat_message(message["role"], avatar = avatar):
             st.write(message["content"])
@@ -133,7 +135,7 @@ if query is not None:
         st.write(query)
 
     # Invoke agent
-    with st.chat_message("picard", avatar="🖖"):
+    with st.chat_message("picard", avatar=picard_avatar):
         
         st.write_stream(generate_thinking(query))
         result = agent.invoke({"question": query, "df":df_baseline})
