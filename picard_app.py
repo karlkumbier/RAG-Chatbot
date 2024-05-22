@@ -108,7 +108,7 @@ def click_show_refs():
 # Initialize response scoring callbacks
 def save_response(log_dir, session_id, active_idx, history, skey):
     
-    response_id = len(history) / 2   
+    response_id = int(len(history) / 2)
     score = st.session_state[f"{response_id}_{active_idx}"]
     
     # Update reference score
@@ -204,7 +204,7 @@ if refs is not None:
                 "Is this reference relevant to the response?", 
                 ["yes", "ambiguous", "no"], 
                 index=active_ref.get("score"),
-                key=f"{len(st.session_state.history)}_{active_idx}",
+                key=f"{int(len(st.session_state.history) / 2)}_{active_idx}",
                 on_change=save_response,
                 kwargs=dict(
                     log_dir=log_dir, 
