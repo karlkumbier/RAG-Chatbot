@@ -17,7 +17,7 @@ repo = git.Repo(search_parent_directories=True)
 sha = repo.head.object.hexsha
 
 
-data_dir = "/Users/kkumbier/github/persisters/data/"
+data_dir = os.environ["PERSISTER_DB"]
 
 screens = [
     "012023001-RNASEQ-CELL",
