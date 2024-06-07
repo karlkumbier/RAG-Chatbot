@@ -1,0 +1,7 @@
+# Setup
+
+- Install python >= 3.12
+- Install venv module
+- Initialize virtual environment python -m .venv
+- Activate virtual environment and pip install packages in requirements.txt
+- Add cwd to PYTHONPATH
