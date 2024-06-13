@@ -8,6 +8,7 @@ from agent.models import cold_gpt35
 from agent.base_agents import chat_agent, agent_node
 from agent.sqldb.utils import set_schema_node_, run_query_node_
 from agent.sqldb.prompts import SQL_QUERY_PROMPT, SQL_DEBUGGER_PROMPT
+
 import functools
 import operator
 import pandas as pd
@@ -20,9 +21,6 @@ NTRY = 10
 # TODO: ** add code parser to extract sql query from response...
 # TODO: create user that does not have write permissions
 # TODO: rewrite from csv file, may have been overwritten in testing
-# TODO: pull in comments for schema generation
-#   SELECT oid, relname, description FROM pg_class
-#   INNER JOIN pg_description ON pg_class.oid = pg_description.objoid;
 username = "kkumbier"
 password = "persisters"
 port = "5432"
@@ -31,14 +29,6 @@ db = "persisters"
 
 pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{db}"
 db = SQLDatabase.from_uri(pg_uri)
-
-schema_query = """
-  SELECT oid, relname, description FROM pg_class
-  INNER JOIN pg_description ON pg_class.oid = pg_description.objoid;
-"""
-
-import pandas as pd
-result = result = pd.read_sql(schema_query, db._engine)
 
 # Set agent initialer and router
 def initializer_node(state: Dict) -> Dict:
@@ -130,3 +120,14 @@ if __name__ == "__main__":
   results["df"]
   query = results["db_query"]
   output = db.run(query)
+  
+  question = """
+    Get a table of all columns from the hypoxia screen differential expression analysis. Limit results to 20 samples
+  """
+  
+  results = db_agent.invoke({"question": question})
+  print(results["db_query"])
+  results["df"]
+  query = results["db_query"]
+  output = db.run(query) 
+  
