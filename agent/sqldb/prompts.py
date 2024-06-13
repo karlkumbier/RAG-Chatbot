@@ -4,9 +4,14 @@ database contains the following tables.
 
 TABLES: {tables}
 
-Determine which of these tables are required to answer the following question.
+Determine which of these tables are required to answer the following QUESTION.
 
 QUESTION: {question}
+
+Below is a summary of each table. Use these summaries to determine which tables 
+are relevant to the QUESTION.
+
+TABLE SUMMARIES:\n\n{summary}
 
 Return a comman separated list of all TABLES that are relevant to the QUESTION. Your response should only include table names, no additional explanation. If no tables appear to be relevant to the QUESTION, respond `None`.
 
