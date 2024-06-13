@@ -19,7 +19,6 @@ QUERY: {question}
 - the figure should be stored as a variable named `fig`
 - The code block must start and end with ```
 
-- Example code format ```code```
 """
 
 
@@ -30,5 +29,4 @@ DEBUG_CHART_PROMPT = """
     
     - The NEW CODE BLOCK must start and end with ```
     - The NEW CODE BLOCK should seek to perform the same function as the original CODE BLOCK while resolving any errors. 
-    - Example NEW CODE BLOCK format ```code```
 """

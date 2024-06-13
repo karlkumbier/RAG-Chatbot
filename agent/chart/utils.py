@@ -1,24 +1,35 @@
-from langchain.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-
+from langchain_core.messages import AIMessage
 from typing import Dict
 import re
 
-from langchain_core.prompts import (
-  ChatPromptTemplate,
-  MessagesPlaceholder
-)
 
-def chat_agent(llm, base_prompt: str) -> str:
-  """ Initialize chain for generating charts"""
-  prompt = ChatPromptTemplate.from_messages([
-    ("system", base_prompt),
-    MessagesPlaceholder(variable_name="messages"),
-  ])   
+def make_chart_node_(state: Dict, name: str) -> Dict:
+  """ 
+  Runs figure generating code block and returns result or error. 
   
-  return prompt | llm
+  Graph `state` must include `df` (pandas DataFrame) entry with data to be 
+  plotted.
+  """
+  
+  code = state["messages"][-1].content
+  code = code.replace("fig.show()", "")
+  
+  if state.get("df") is None:
+    raise Exception("No active data")
+  else:
+    _globals = {"df": state["df"]}
+    result = run_python_fig_code(code, _globals) 
+  
+  if isinstance(result, Exception):
+    result = f"Failed to execute CODE:\n\n{code}.\n\nERROR: {repr(result)}"
+    state["messages"] = [AIMessage(result, name=name)]
+  else:
+    state["code"] = code
+    state["fig"] = result
+  
+  return state
 
-def execute_python_code(code: str, _globals: Dict) -> str:
+def run_python_fig_code(code: str, _globals: Dict) -> str:
   """Executes python code block and extract `fig` variable""" 
   code = extract_python_code(code)
   

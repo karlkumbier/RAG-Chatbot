@@ -1,121 +1,132 @@
-from langchain.agents.agent_toolkits import SQLDatabaseToolkit 
 from langchain.utilities.sql_database import SQLDatabase
 from langgraph.graph import StateGraph
-from langgraph.prebuilt import ToolNode
-
-from langchain_core.messages import (
-    BaseMessage,
-    ToolMessage,
-    AIMessage
-)
+from langchain_core.messages import BaseMessage
 
 from typing_extensions import TypedDict
-from typing import Sequence, Annotated, Literal
+from typing import Sequence, Annotated, Literal, Dict
 from agent.models import cold_gpt35
-from agent.sqldb.utils import *
-from agent.sqldb.prompts import SQL_TOOL_PROMPT
+from agent.base_agents import chat_agent, agent_node
+from agent.sqldb.utils import set_schema_node_, run_query_node_
+from agent.sqldb.prompts import SQL_QUERY_PROMPT, SQL_DEBUGGER_PROMPT
 import functools
 import operator
+import pandas as pd
 
-def agent_node(state, agent, name):
-  """ Wrapper function for creating node from tool calling agent """
-  print(f"--- Running: {name} ---")
-  result = agent.invoke(state)
-  
-  # Convert agent output into a format suitable to append to the global state
-  if isinstance(result, ToolMessage):
-    pass
-  else:
-    result = AIMessage(**result.dict(exclude={"type", "name"}), name=name)
-  print(result)
-  state["messages"] = [result]
-  state["sender"] =  name
-  return state
+# Initialize base parameters for agent
+LLM = cold_gpt35
+NTRY = 10
 
-def router(state) -> Literal["call_tool", "__end__"]:
-    """ Routes agent action to either tool call or program end """
-    print("--- Routing ---")
-    last_message = state["messages"][-1]
-    
-    if last_message.tool_calls:
-        # The previous agent is invoking a tool
-        return "call_tool"
-    if "SUCCESS" in last_message.content:
-        # Agent decided the work is done
-        return "__end__"
-    else:
-      Warning("Agent failed to execute query")
-      return "__end__"
-
-# Initialize agent nodes for sql query generation and tool calling
+# Initialize connection to database 
+# TODO: ** add code parser to extract sql query from response...
+# TODO: create user that does not have write permissions
+# TODO: rewrite from csv file, may have been overwritten in testing
+# TODO: pull in comments for schema generation
+#   SELECT oid, relname, description FROM pg_class
+#   INNER JOIN pg_description ON pg_class.oid = pg_description.objoid;
 username = "kkumbier"
 password = "persisters"
 port = "5432"
 host = "localhost"
 db = "persisters"
 
-# Initialize connection to database
 pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{db}"
 db = SQLDatabase.from_uri(pg_uri)
-sql_toolkit = SQLDatabaseToolkit(db=db, llm=cold_gpt35)
+
+schema_query = """
+  SELECT oid, relname, description FROM pg_class
+  INNER JOIN pg_description ON pg_class.oid = pg_description.objoid;
+"""
+
+import pandas as pd
+result = result = pd.read_sql(schema_query, db._engine)
+
+# Set agent initialer and router
+def initializer_node(state: Dict) -> Dict:
+  """ Initialize tools and evaluate DB schema"""
+  if state.get("messages") is None:
+    state["messages"] = []
+    
+  if state.get("ntry") is None:
+    state["ntry"] = 0
+    
+  return state
+  
+def router(state) -> Literal["debug", "__end__"]:
+  """ Routes agent action to either debug or program end """ 
+  if state.get("df") is None:
+    return "__end__" if state["ntry"] > NTRY else "debug"
+  else:
+    return "__end__"
 
 # Node for tool calling agent - generates tool inputs
-db_node = functools.partial(
+sql_query_node = functools.partial(
   agent_node, 
-  agent=tool_agent(cold_gpt35, SQL_TOOL_PROMPT, sql_toolkit), 
-  name="database"
+  agent=chat_agent(cold_gpt35, SQL_QUERY_PROMPT), 
+  name="sql_query_generator"
 )
 
-# Node for tool calling - uses tool with input from agent
-tool_node = ToolNode(sql_toolkit.get_tools())
+sql_query_debug_node = functools.partial(
+  agent_node,
+  agent=chat_agent(LLM, SQL_DEBUGGER_PROMPT),
+  name="sql_debugger"
+)
+
+run_query_node = functools.partial(
+  run_query_node_,
+  db=db,
+  name="sql_executor"  
+)
+
+set_schema_node = functools.partial(
+  set_schema_node_,
+  llm=LLM,
+  db=db
+)
 
 ###############################################################################
 # Initialize agent graph 
 ###############################################################################
-# TODO: create user that does not have write permissions
-# TODO: rewrite from csv file, may have been overwritten in testing
-# TODO: pull in comments for schema generation
-#   SELECT oid, relname, description FROM pg_class
-#   INNER JOIN pg_description ON pg_class.oid = pg_description.objoid;
-
-# Set graph edges
 class AgentState(TypedDict):
   question: str
   messages: Annotated[Sequence[BaseMessage], operator.add]
+  db_query: str
+  df: pd.DataFrame
+  db_schema: str
+  dialect: str
   sender: str
+  ntry: int
 
 workflow = StateGraph(AgentState)
-workflow.add_node("database", db_node)
-workflow.add_node("call_tool", tool_node)
+workflow.add_node("initializer", initializer_node)
+workflow.add_node("set_schema", set_schema_node) # make this
+workflow.add_node("sql_query_generate", sql_query_node) # chat agent
+workflow.add_node("run_query", run_query_node) # make this
+workflow.add_node("sql_query_debug", sql_query_debug_node) # chat agent
 
-workflow.set_entry_point("database")
-workflow.add_edge("call_tool", "database")
+workflow.set_entry_point("initializer")
+workflow.add_edge("initializer", "set_schema")
+workflow.add_edge("set_schema", "sql_query_generate")
+workflow.add_edge("sql_query_generate", "run_query")
+workflow.add_edge("sql_query_debug", "run_query")
 
 workflow.add_conditional_edges(
-    "database",
-    router,
-    {"call_tool": "call_tool", "__end__": "__end__"},
+  "run_query",
+  router,
+  {"debug": "sql_query_debug", "__end__": "__end__"},
 )
 
-agent = workflow.compile()
-agent.get_graph().print_ascii()
+db_agent = workflow.compile()
+#db_agent.get_graph().print_ascii()
 
 
 if __name__ == "__main__":
 
   question = """
-    Get the table of log2 fold change, p-value, and SYMBOL from the 
-    122023001-RNASEQ-CELL screen. Limit results to 10 samples
+    Get a tables of log2 fold change, p-value, and SYMBOL from the 122023001 and 012023001 screens. Filter these to PC9 cell lines and join the two tables by symbol. Limit results to 20 samples
   """
-  
-  results = agent.invoke({
-    "question": question,
-    "messages": []
-  })
 
-  queries = [m for m in results["messages"] if isinstance(m, AIMessage)]
-  final_query = queries[-2]
-  qry = final_query.additional_kwargs["tool_calls"][0]["function"]["arguments"]
-  
-  print(f"SQL QUERY: {qry}")
-  print(results["messages"][-1].content)
+  results = db_agent.invoke({"question": question})
+  print(results["db_query"])
+  results["df"]
+  query = results["db_query"]
+  output = db.run(query)
