@@ -26,3 +26,8 @@ def chat_agent(llm: BaseLanguageModel, base_prompt: str) -> str:
   ])   
   
   return prompt | llm
+
+def single_response_agent(llm: BaseLanguageModel, base_prompt: str) -> str:
+  """ Wrapper function for chat agent"""
+  prompt = ChatPromptTemplate.from_messages([("system", base_prompt)])
+  return prompt | llm 
