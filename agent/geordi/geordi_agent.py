@@ -1,18 +1,14 @@
-from agent.sqldb.archive.sqldb_agent import sqldb_agent
-from agent.chart.archive.chart_agent import chart_agent
-from agent.base_agents import chat_agent, agent_node
+from agent.base_agents import chat_agent
 from agent.models import cold_gpt35, gpt4
 from agent.geordi.prompts import *
 from langgraph.graph import StateGraph
+from langchain_core.language_models import BaseLanguageModel
 
 from langchain_core.messages import BaseMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from typing import Sequence, Annotated, Literal, Dict
 from typing_extensions import TypedDict
-from plotly.graph_objects import Figure
 import operator
-import pandas as pd
-import functools
 
 LLM = gpt4
 
@@ -21,8 +17,20 @@ fold change for PC9 cell lines. The differential expression analysis should
 contrast SOC with no drug. Use data from the hypoxia vs. normoxia screen. 
 """
 
+# Initialize SQLDB base agent
+from agent.sqldb.agent import SQLDBAgent
+from agent.chart.agent import ChartAgent
 
-# TODO: Agent class - initialized with "name" that appends key to AgentState
+from langchain.utilities.sql_database import SQLDatabase
+
+username = "picard"
+password = "persisters"
+port = "5432"
+host = "localhost"
+dbname = "persisters"
+pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{dbname}"
+db = SQLDatabase.from_uri(pg_uri)
+
 # TODO: data_loader should incorporate message from insufficiency explainer
 # TODO: Fig explanation of generated figures
 # TODO clean up
@@ -31,20 +39,51 @@ contrast SOC with no drug. Use data from the hypoxia vs. normoxia screen.
 # Agent assesses relevance of available data for downstream analysis. If data 
 # sufficient, send on for processing.
 ##############################################################################
+# Utility functions
+def check_config(config: Dict) -> None:
+  """ Runs checks on config """
+  
+  # Ensure databse connection in config
+  if config.get("db") is None:
+    raise Exception("Must specify database `db` in `config`")
+  
+  if not isinstance(config.get("db"), SQLDatabase):
+    raise TypeError("`db` must be an SQLDatabase")
+
+  return None
+
+
+def check_relevance(question: str, agent: SQLDBAgent, llm: BaseLanguageModel) -> Literal["sufficient", "insufficient"]:
+  """ Determines whether data are sufficient or insufficient for request"""
+  chain = chat_agent(llm, RELEVANCE_PROMPT)
+  
+  summary = agent.get("df_summary")
+  invoke_state = {"df_summary": summary, "question": question}
+  return chain.invoke(invoke_state).content
+
+
 # Define agent state
 class AgentState(TypedDict):
   question: str # user question
   messages: Annotated[Sequence[BaseMessage], operator.add] # chat history
-  db_query: str # last SQL query
-  fig: Figure # generated figure
-  df: pd.DataFrame # dataframe from query 
-  df_summary: str # description of dataframe
+  sqldb_agent: SQLDBAgent
+  chart_agent: ChartAgent
   ntry: int # number of debug attemps
 
 
 # Define graph node functions
-def initializer_node(state: Dict) -> Dict:
-  """ Initialize tools and evaluate DB schema"""
+def initialize(state: Dict, config: Dict) -> Dict:
+  """ Initialize graph state values """
+  
+  # Initialize state values
+  check_config(config)
+  
+  if state.get("sqldb_agent") is None:
+    state["sqldb_agent"] = SQLDBAgent() 
+
+  if state.get("chart_agent") is None:
+    state["chart_agent"] = ChartAgent()
+    
   if state.get("messages") is None:
     state["messages"] = []
     
@@ -53,75 +92,95 @@ def initializer_node(state: Dict) -> Dict:
     
   return state
 
+
 def load_data(state: Dict, config: Dict) -> Dict:
   """ Calls sqldb agent to load data """
-  
+  check_config(config)
+  sqldb_agent = state["sqldb_agent"] 
+
   if config.get("verbose", False):
     print("--- LOADING DATASET ---")
-    
-  # TODO: maybe need to modify state based to DB agent
-  result = sqldb_agent.invoke(state)
-  state["df_summary"] = result["df_summary"]
-  state["df"] = result["df"] 
-  state["db_query"] = result["db_query"]
+
+  # Run sql agent to load data
+  invoke_state = {"question": state.get("question")}
+  sqldb_agent.state = sqldb_agent.invoke(invoke_state, config)   
+  state["sqldb_agent"] = sqldb_agent
   state["ntry"] += 1
-  
-  if config.get("verbose", False):
-    print(state["df_summary"])
-    print(state["db_query"])
+
+  # Add messages from sql agent to chat thread
+  if sqldb_agent.get("df") is not None:
+    summary = sqldb_agent.get("df_summary")
+    msg = f"Successfully loaded the following table: {summary}"
+    state["messages"] = AIMessage(msg, name=sqldb_agent.name)
+  else:
+    msg = f"Failed to load table."
+    state["messages"] = AIMessage(msg, name=sqldb_agent.name)
     
   return state
 
 
-def check_relevance(state: Dict) -> Literal["sufficient", "insufficient"]:
-  """ Determines whether data are sufficient or insufficient for request"""
-  agent = chat_agent(LLM, RELEVANCE_PROMPT)
-  return agent.invoke(state).content
-
 def router(state: Dict, config: Dict) -> Literal["figure", "analysis"]:
   """ Determine which downstream task to be performed"""
-  
-  relevance = check_relevance(state)
+  llm = config.get("llm", LLM)
+  sqldb_agent = state["sqldb_agent"] 
+  question = state.get("question")  
+  relevance = check_relevance(question, sqldb_agent, llm)
   
   if config.get("verbose", False):
     print("--- ROUTING ---")
     print(relevance)
 
-  # If data cannot address request, send back to laoder
+  # If data cannot address request, send back to explainer
   if relevance == "insufficient":
     return "insufficiency_explainer"
   
-  task_agent = chat_agent(LLM, TASK_PROMPT)
-  return task_agent.invoke(state).content 
+  chain = chat_agent(llm, TASK_PROMPT)
+  invoke_state = {"question": question}
+  return chain.invoke(invoke_state).content 
 
-def explain_insufficient(state: Dict) -> Dict:
+
+def explain_insufficient(state: Dict, config: Dict) -> Dict:
+  """ Provide a natural language description of why data are insufficient"""
+  llm = config.get("llm", LLM)
+  sqldb_agent = state["sqldb_agent"] 
   
-  agent = chat_agent(LLM, EXPLAIN_IRRELEVANCE_PROMPT)
-  state["table"] = state["df"].head().to_string()
-  result = StrOutputParser(agent.invoke(state))
-  state["messages"] = [result]
+  chain = chat_agent(llm, EXPLAIN_IRRELEVANCE_PROMPT)
+  
+  invoke_state = {
+    "question": state["question"],
+    "table": sqldb_agent.get("df").head().to_string(),
+    "df_summary": sqldb_agent.get("df_summary"),
+    "query": sqldb_agent.get("query")
+  }
+
+  result = StrOutputParser(chain.invoke(invoke_state))
+  state["messages"] = [AIMessage(result)]
   return state 
   
+
 def make_figure(state: Dict, config: Dict) -> Dict:
   """ Calls chart agent to generate a figure """
-  
+  chart_agent = state["chart_agent"]  
+  sqldb_agent = state["sqldb_agent"] 
+
   if config.get("verbose", False):
     print("--- GENERATING FIGURE ---")
   
-  result = chart_agent.invoke(state)
-  state["fig"] = result["fig"]
+  config["df"] = sqldb_agent.get("df")
+  invoke_state = {"question": state["question"]}
+  chart_agent.state = chart_agent.invoke(invoke_state, config=config)
+  state["chart_agent"] = chart_agent
   return state
 
 def run_analysis(state: Dict)  -> Dict:
   """ Calls analysis agent to run analysis"""
   message = "Analysis engine not curently supported"
-  result = AIMessage(message)
-  state["messages"] = [result]
+  state["messages"] = [AIMessage(message)]
   return state
 
 # Construct agent graph
 workflow = StateGraph(AgentState)
-workflow.add_node("initializer", initializer_node)
+workflow.add_node("initializer", initialize)
 workflow.add_node("data_loader", load_data)
 workflow.add_node("insufficiency_explainer", explain_insufficient)
 workflow.add_node("figure_generator", make_figure)
@@ -146,10 +205,9 @@ workflow.add_conditional_edges(
 geordi = workflow.compile()
 geordi.get_graph().print_ascii()
 
-config = {"verbose": True}
+config = {"verbose": True, "db": db, "llm": LLM, "name": "geordi"}
 result = geordi.invoke({"question": question}, config=config)
 
-result["fig"].show()
 
 
 ##############################################################################

@@ -26,6 +26,7 @@ class SQLDBAgent(StateGraph):
     state = TypedDict("AgentState", state)
     self.agent = self.__construct_graph__(state)
     self.name = name
+    self.state = None
     
   def __construct_graph__(self, state): 
     """ Initializes logic flow of agent graph """
@@ -64,6 +65,15 @@ class SQLDBAgent(StateGraph):
 
   def invoke(self, state: Dict, config: Dict):
     return self.agent.invoke(state, config=config)
+    
+  def __clear_state__(self):
+    self.state = None
+    
+  def get(self, key: str):
+    if self.state is None:
+      return None
+    else:
+      return self.state.get(f"{self.name}_{key}")
 
 
 if __name__ == "__main__":

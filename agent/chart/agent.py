@@ -22,9 +22,10 @@ class ChartAgent:
       f"{name}_ntry": int
     }   
     
-    AgentState = TypedDict("agentState", state)
-    self.agent = self.__build_graph__(AgentState)
+    state = TypedDict("agentState", state)
+    self.agent = self.__build_graph__(state)
     self.name = name
+    self.state = None
     
   def __build_graph__(self, state):
     workflow = StateGraph(state)
@@ -56,7 +57,16 @@ class ChartAgent:
     
   def invoke(self, state: Dict, config: Dict):
     return self.agent.invoke(state, config)
+  
+  def __clear_state__(self):
+    self.state = None
     
+  def get(self, key: str):
+    if self.state is None:
+      return None
+    else:
+      return self.state.get(f"{self.name}_{key}")
+
 
 if __name__ == "__main__":
   from agent.chart.agent import *
