@@ -98,8 +98,20 @@ if __name__ == "__main__":
   """
 
   result = geordi.invoke({"question": question}, config=config)
-  print(result["chart_agent"].get("fig"))
-  result["chart_agent"].state
+  print(result["chart_agent"].state["fig_summary"])
+  
+  # Test 2
+  question = """Combine differential expression results from the January 2023 
+  and April 2023 screens for all cell lines. The differential expression 
+  analysis should contrast SOC with no drug. Filter to rows from the baseline 
+  context. Using these data, generate a figure of differential expression 
+  p-value versus log2 fold change by cell line. Your figure should have one subplot per cell line.
+  """
+
+  result = geordi.invoke({"question": question}, config=config)
+  print(result["sqldb_agent"].state["query"]) 
+  print(result["chart_agent"].state["fig_summary"]) 
+  
   
   
   result.keys()

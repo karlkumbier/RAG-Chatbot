@@ -115,8 +115,11 @@ def make_figure(state: Dict, config: Dict) -> Dict:
   state["chart_agent"] = chart_agent
   return state
 
-def run_analysis(state: Dict)  -> Dict:
+def run_analysis(state: Dict, config: Dict) -> Dict:
   """ Calls analysis agent to run analysis"""
   message = "Analysis engine not curently supported"
   state["messages"] = [AIMessage(message)]
   return state
+
+def evaluate_task(state: Dict, config: Dict) -> Dict:
+  """ Evaluates whether task has successfully been completed """
