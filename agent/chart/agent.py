@@ -9,26 +9,23 @@ from agent.chart import nodes
 from plotly.graph_objects import Figure
 import operator
 
+class ChartAgentState(TypedDict):
+    question: str # user question
+    messages: Annotated[Sequence[BaseMessage], operator.add] # chat history
+    code: str # figure code
+    fig: Figure # figure object
+    fig_summary: str # plain text description of figure
+    ntry: int # number of attempts
+
 class ChartAgent:
   
   def __init__(self, name="chart"):
-    
-    state = {
-      "question": str,
-      f"{name}_messages": Annotated[Sequence[BaseMessage], operator.add],
-      f"{name}_code": str, 
-      f"{name}_fig": Figure,
-      f"{name}_fig_summary": str,
-      f"{name}_ntry": int
-    }   
-    
-    state = TypedDict("agentState", state)
-    self.agent = self.__build_graph__(state)
+    self.agent = self.__build_graph__()
     self.name = name
     self.state = None
     
-  def __build_graph__(self, state):
-    workflow = StateGraph(state)
+  def __build_graph__(self):
+    workflow = StateGraph(ChartAgentState)
     workflow.add_node("initializer", nodes.initialize)
     workflow.add_node("code_generator", nodes.generate_code)
     workflow.add_node("code_runner", nodes.run_code)
@@ -65,7 +62,7 @@ class ChartAgent:
     if self.state is None:
       return None
     else:
-      return self.state.get(f"{self.name}_{key}")
+      return self.state.get(key)
 
 
 if __name__ == "__main__":
@@ -78,13 +75,16 @@ if __name__ == "__main__":
   data_dir = "012023001-RNASEQ-CELL/level2"
   df = pd.read_csv(os.path.join(base_dir, data_dir, "gene_de.csv"))
   
+  # Initialize chart agent
+  chart_agent = ChartAgent()
+  
+  # Test 1
   question =  """
   Generate a plot log2 fold change on the x-axis and p-value on the y-axis. 
   Filter data to include only PC9 cell line and the SOC, Normoxia v. No drug, 
   Normoxia ContrastFull.
   """ 
   
-  chart_agent = ChartAgent()
   config = {"name": chart_agent.name, "llm": gpt4, "df": [df], "verbose": True}
   result = chart_agent.invoke({"question": question}, config)
 

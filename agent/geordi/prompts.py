@@ -1,26 +1,36 @@
 RELEVANCE_PROMPT = """
-You are a data scientist. Determine whether the table described by TABLE 
-SUMMARY contains sufficient information to a answer a user REQUEST. Respond 
-with one word: either `sufficient` or `insufficient`. Do not provide any 
-explanation. If there is no information in the TABLE SUMMARY below, respond 
-`insufficient`.
+You are a data scientist. Below are sample rows from a TABLE returned from an 
+SQL QUERY. Determine whether the TABLE contains sufficient information to a 
+answer a user REQUEST. Respond with one word: either `sufficient` or 
+`insufficient`. Do not provide any explanation. If there is no information in 
+the TABLE below, respond `insufficient`.
 
-TABLE_SUMMARY: {df_summary}
+To evaluate whehter information in the TABLE is relevant to the REQUEST, 
+consider the SQL QUERY used to generate the table in relation to the TABLE 
+SCHEMA that describes the TABLE.
+
+TABLE: {table}
+
+TABLE SCHEMA: {schema}
+
+SQL QUERY: {query}
 
 REQUEST: {question}
 """
 
-EXPLAIN_IRRELEVANCE_PROMPT = """
+EXPLAIN_ROUTER_PROMPT = """
 You are a data scientist. The following TABLE was deemed insufficient to answer 
 a user's REQUEST. Provide an explanation of why the TABLE is insufficient to
 address the request, along with more precise instructions to produce a relevant 
-table. To help generate your explanation, make use of the TABLE SUMMARY, which provides a natural language description of the table, and SQL QUERY that was used to generate the table.
+table. To help generate your explanation, make use of the SQL QUERY used to generate the table in relation to the TABLE SCHEMA that describes the TABLE.
 
 TABLE: {table}
 
-TABLE SUMMARY: {df_summary}
+TABLE SCHEMA: {schema}
 
-QUERY: {db_query}
+QUERY: {query}
+
+REQUEST: {question}
 """
 
 TASK_PROMPT ="""

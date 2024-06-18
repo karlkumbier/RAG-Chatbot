@@ -3,6 +3,11 @@ from agent.models import cold_gpt35, gpt4
 from agent.geordi.prompts import *
 from langgraph.graph import StateGraph
 from langchain_core.language_models import BaseLanguageModel
+from langchain.utilities.sql_database import SQLDatabase
+
+# Initialize SQLDB base agent
+from agent.sqldb.agent import SQLDBAgent
+from agent.chart.agent import ChartAgent
 
 from langchain_core.messages import BaseMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -11,25 +16,6 @@ from typing_extensions import TypedDict
 import operator
 
 LLM = gpt4
-
-question = """Generate a figure of differential expression p-value versus log2 
-fold change for PC9 cell lines. The differential expression analysis should
-contrast SOC with no drug. Use data from the hypoxia vs. normoxia screen. 
-"""
-
-# Initialize SQLDB base agent
-from agent.sqldb.agent import SQLDBAgent
-from agent.chart.agent import ChartAgent
-
-from langchain.utilities.sql_database import SQLDatabase
-
-username = "picard"
-password = "persisters"
-port = "5432"
-host = "localhost"
-dbname = "persisters"
-pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{dbname}"
-db = SQLDatabase.from_uri(pg_uri)
 
 # TODO: data_loader should incorporate message from insufficiency explainer
 # TODO: Fig explanation of generated figures
@@ -111,15 +97,15 @@ def load_data(state: Dict, config: Dict) -> Dict:
   if sqldb_agent.get("df") is not None:
     summary = sqldb_agent.get("df_summary")
     msg = f"Successfully loaded the following table: {summary}"
-    state["messages"] = AIMessage(msg, name=sqldb_agent.name)
+    state["messages"] = [AIMessage(msg, name=sqldb_agent.name)]
   else:
     msg = f"Failed to load table."
-    state["messages"] = AIMessage(msg, name=sqldb_agent.name)
+    state["messages"] = [AIMessage(msg, name=sqldb_agent.name)]
     
   return state
 
 
-def router(state: Dict, config: Dict) -> Literal["figure", "analysis"]:
+def route(state: Dict, config: Dict) -> Literal["figure", "analysis"]:
   """ Determine which downstream task to be performed"""
   llm = config.get("llm", LLM)
   sqldb_agent = state["sqldb_agent"] 
@@ -132,14 +118,14 @@ def router(state: Dict, config: Dict) -> Literal["figure", "analysis"]:
 
   # If data cannot address request, send back to explainer
   if relevance == "insufficient":
-    return "insufficiency_explainer"
+    return "explain"
   
   chain = chat_agent(llm, TASK_PROMPT)
   invoke_state = {"question": question}
   return chain.invoke(invoke_state).content 
 
 
-def explain_insufficient(state: Dict, config: Dict) -> Dict:
+def explain_router(state: Dict, config: Dict) -> Dict:
   """ Provide a natural language description of why data are insufficient"""
   llm = config.get("llm", LLM)
   sqldb_agent = state["sqldb_agent"] 
@@ -166,7 +152,7 @@ def make_figure(state: Dict, config: Dict) -> Dict:
   if config.get("verbose", False):
     print("--- GENERATING FIGURE ---")
   
-  config["df"] = sqldb_agent.get("df")
+  config["df"] = [sqldb_agent.get("df")]
   invoke_state = {"question": state["question"]}
   chart_agent.state = chart_agent.invoke(invoke_state, config=config)
   state["chart_agent"] = chart_agent
@@ -178,63 +164,81 @@ def run_analysis(state: Dict)  -> Dict:
   state["messages"] = [AIMessage(message)]
   return state
 
-# Construct agent graph
-workflow = StateGraph(AgentState)
-workflow.add_node("initializer", initialize)
-workflow.add_node("data_loader", load_data)
-workflow.add_node("insufficiency_explainer", explain_insufficient)
-workflow.add_node("figure_generator", make_figure)
-workflow.add_node("analysis_runner", run_analysis)
-
-workflow.set_entry_point("initializer")
-workflow.add_edge("initializer", "data_loader")
-workflow.add_edge("insufficiency_explainer", "data_loader")
-workflow.add_edge("figure_generator", "__end__")
-workflow.add_edge("analysis_runner", "__end__")
-
-workflow.add_conditional_edges(
-  "data_loader",
-  router,
-  {
-    "insufficiency_explainer": "insufficiency_explainer", 
-    "figure": "figure_generator", 
-    "analysis": "analysis_runner"
-  }
-)
-
-geordi = workflow.compile()
-geordi.get_graph().print_ascii()
-
-config = {"verbose": True, "db": db, "llm": LLM, "name": "geordi"}
-result = geordi.invoke({"question": question}, config=config)
+if __name__ == "__main__":
 
 
+  question = """Generate a figure of differential expression p-value versus log2
+  fold change for PC9 cell lines. The differential expression analysis should
+  contrast SOC with no drug. Use data from the hypoxia vs. normoxia screen. 
+  """
 
-##############################################################################
-# If data are not relevant, describe problem, retry query
-##############################################################################
+  username = "picard"
+  password = "persisters"
+  port = "5432"
+  host = "localhost"
+  dbname = "persisters"
+  pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{dbname}"
+  db = SQLDatabase.from_uri(pg_uri)
 
-##############################################################################
-# Once data are relevant...
-##############################################################################
 
-##############################################################################
-# Determine task to be performed - task should be in state, to be read by 
-# supervising agents
-##############################################################################
+  # Construct agent graph
+  workflow = StateGraph(AgentState)
+  workflow.add_node("initializer", initialize)
+  workflow.add_node("data_loader", load_data)
+  workflow.add_node("router_explainer", explain_router)
+  workflow.add_node("figure_generator", make_figure)
+  workflow.add_node("analysis_runner", run_analysis)
 
-##############################################################################
-# Carry out task
-# 1. Update figure agent according to state / table summary / new changes
-# 2. Add node for `analysis` to return message: methods not implemented yet
-# 3. Modify state (e.g., by adding fig). Add state message summarizing the fig.
-##############################################################################
+  workflow.set_entry_point("initializer")
+  workflow.add_edge("initializer", "data_loader")
+  workflow.add_edge("data_loader", "__end__")    
+  workflow.add_edge("router_explainer", "data_loader")
+  workflow.add_edge("figure_generator", "__end__")
+  workflow.add_edge("analysis_runner", "__end__")
 
-##############################################################################
-# Assess task completeness - chat history / single message node
-##############################################################################
+  workflow.add_conditional_edges(
+    "data_loader",
+    route,
+    {
+      "explain": "router_explainer", 
+      "figure": "figure_generator", 
+      "analysis": "analysis_runner"
+    }
+  )
 
-##############################################################################
-# If task not complete, describe problem, route description to one of database # loader or figure generator and rerun cycle
-##############################################################################
+  geordi = workflow.compile()
+  geordi.get_graph().print_ascii()
+
+  config = {"verbose": True, "db": db, "llm": LLM, "name": "geordi"}
+  result = geordi.invoke({"question": question}, config=config)
+  result["sqldb_agent"].get("df")
+
+
+  ##############################################################################
+  # If data are not relevant, describe problem, retry query
+  ##############################################################################
+
+  ##############################################################################
+  # Once data are relevant...
+  ##############################################################################
+
+  ##############################################################################
+  # Determine task to be performed - task should be in state, to be read by 
+  # supervising agents
+  ##############################################################################
+
+  ##############################################################################
+  # Carry out task
+  # 1. Update figure agent according to state / table summary / new changes
+  # 2. Add node for `analysis` to return message: methods not implemented yet
+  # 3. Modify state (e.g., by adding fig). Add state message summarizing the fig.
+  ##############################################################################
+
+  ##############################################################################
+  # Assess task completeness - chat history / single message node
+  ##############################################################################
+
+  ##############################################################################
+  # If task not complete, describe problem, route description to one of database # loader or figure generator and rerun cycle
+  ##############################################################################
 

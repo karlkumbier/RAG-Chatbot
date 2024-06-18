@@ -8,29 +8,28 @@ from typing import Sequence, Annotated, Dict
 import operator
 import pandas as pd
 
+class SQLDBAgentState(TypedDict):
+  question: str # user question
+  messages: Annotated[Sequence[BaseMessage], operator.add] # chat history
+  ntry: int # number of attempts
+  dialect: str # SQL dialect
+  schema: str # comments on tables + columns
+  query: str # SQL query
+  df: pd.DataFrame # loaded data frame
+  df_summary: str # description of laoded data frame
+
+
 class SQLDBAgent(StateGraph):
   
   def __init__(self, name="sqldb"):
     """ Initializes graph state """    
-    state = {
-      "question": str,
-      f"{name}_messages": Annotated[Sequence[BaseMessage], operator.add],
-      f"{name}_ntry": int,
-      f"{name}_dialect": str,
-      f"{name}_schema": str,
-      f"{name}_query": str,
-      f"{name}_df": pd.DataFrame,
-      f"{name}_df_summary": str
-    }
-
-    state = TypedDict("AgentState", state)
-    self.agent = self.__construct_graph__(state)
+    self.agent = self.__construct_graph__()
     self.name = name
     self.state = None
     
-  def __construct_graph__(self, state): 
+  def __construct_graph__(self): 
     """ Initializes logic flow of agent graph """
-    workflow = StateGraph(state)
+    workflow = StateGraph(SQLDBAgentState)
     workflow.add_node("initializer", nodes.initialize)
     workflow.add_node("schema_initializer", nodes.set_schema)
     workflow.add_node("query_generator", nodes.generate_query)
@@ -73,11 +72,11 @@ class SQLDBAgent(StateGraph):
     if self.state is None:
       return None
     else:
-      return self.state.get(f"{self.name}_{key}")
+      return self.state.get(key)
 
 
 if __name__ == "__main__":
-  from agent.sqldb.agent import SQLDBAgent
+  #from agent.sqldb.agent import * 
   from agent.models import gpt4
   from langchain.utilities.sql_database import SQLDatabase
 
@@ -89,24 +88,25 @@ if __name__ == "__main__":
   dbname = "persisters"
   pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{dbname}"
   db = SQLDatabase.from_uri(pg_uri)
-
+  
+  # Initialize agent
   sqldb_agent = SQLDBAgent()
   sqldb_agent.__print__()
-    
+
+
   # Test 1:
   question = """
     Get a tables of log2 fold change, p-value, and gene name from the hypoxia 
     vs. normoxia screen. Filter these to PC9 cell lines in the baseline
     context. Limit results to 20 samples
   """
-
+  
   config = {"db": db, "llm": gpt4, "name": sqldb_agent.name, "verbose": True}
   results = sqldb_agent.invoke({"question": question}, config)
   
-  name = sqldb_agent.name
-  print(results[f"{name}_query"])
-  print(results[f"{name}_df_summary"])
-  print(results[f"{name}_df"])
+  print(results["query"])
+  print(results["df_summary"])
+  print(results["df"])
   
   # Test 2:
   question = """
@@ -117,6 +117,6 @@ if __name__ == "__main__":
   """
   
   results = sqldb_agent.invoke({"question": question}, config)
-  print(results[f"{name}_query"])
-  print(results[f"{name}_df_summary"])
-  print(results[f"{name}_df"])
+  print(results["query"])
+  print(results["df_summary"])
+  print(results["df"])
