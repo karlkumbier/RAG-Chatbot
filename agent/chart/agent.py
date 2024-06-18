@@ -16,16 +16,18 @@ class ChartAgent:
     state = {
       "question": str,
       f"{name}_messages": Annotated[Sequence[BaseMessage], operator.add],
+      f"{name}_code": str, 
       f"{name}_fig": Figure,
+      f"{name}_fig_summary": str,
       f"{name}_ntry": int
     }   
     
+    AgentState = TypedDict("agentState", state)
+    self.agent = self.__build_graph__(AgentState)
     self.name = name
-    self.AgentState = TypedDict("agentState", state)
-    self.__build_graph__()
-
-  def __build_graph__(self):
-    workflow = StateGraph(self.AgentState)
+    
+  def __build_graph__(self, state):
+    workflow = StateGraph(state)
     workflow.add_node("initializer", nodes.initialize)
     workflow.add_node("code_generator", nodes.generate_code)
     workflow.add_node("code_runner", nodes.run_code)
@@ -44,7 +46,7 @@ class ChartAgent:
         {"debug": "code_debugger", "summarize": "chart_summarizer"},
     )
 
-    self.agent = workflow.compile()
+    return workflow.compile()
     
   def __print__(self):
     if self.agent is None:
@@ -62,19 +64,21 @@ if __name__ == "__main__":
   import pandas as pd 
   import os 
   
-  
   base_dir = "/awlab/projects/2021_07_Persisters/data/"
   data_dir = "012023001-RNASEQ-CELL/level2"
   df = pd.read_csv(os.path.join(base_dir, data_dir, "gene_de.csv"))
   
   question =  """
-  Generate a plot log2 fold change on the x-axis and p-value on the y-axis. Filter data to include only PC9 cell line and the SOC, Normoxia v. No drug, Normoxia ContrastFull.
+  Generate a plot log2 fold change on the x-axis and p-value on the y-axis. 
+  Filter data to include only PC9 cell line and the SOC, Normoxia v. No drug, 
+  Normoxia ContrastFull.
   """ 
   
   chart_agent = ChartAgent()
-  config = {"name": chart_agent.name, "llm": gpt4, "df": df}
-  result = chart_agent.invoke({"question": question}, config=config)
+  config = {"name": chart_agent.name, "llm": gpt4, "df": [df], "verbose": True}
+  result = chart_agent.invoke({"question": question}, config)
 
-  messages = result["messages"]
-  print(messages[-1].content)
-  result["fig"].show()
+  name = chart_agent.name
+  code = result[f"{name}_code"]
+  print(result[f"{name}_code"])
+  print(result[f"{name}_fig_summary"]) 

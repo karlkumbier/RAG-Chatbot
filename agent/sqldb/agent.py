@@ -23,13 +23,13 @@ class SQLDBAgent(StateGraph):
       f"{name}_df_summary": str
     }
 
+    state = TypedDict("AgentState", state)
+    self.agent = self.__construct_graph__(state)
     self.name = name
-    AgentState = TypedDict("AgentState", state)
-    self.agent = self.__construct_graph__(AgentState)
-
-  def __construct_graph__(self, AgentState): 
+    
+  def __construct_graph__(self, state): 
     """ Initializes logic flow of agent graph """
-    workflow = StateGraph(AgentState)
+    workflow = StateGraph(state)
     workflow.add_node("initializer", nodes.initialize)
     workflow.add_node("schema_initializer", nodes.set_schema)
     workflow.add_node("query_generator", nodes.generate_query)
