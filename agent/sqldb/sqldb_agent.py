@@ -131,6 +131,8 @@ if __name__ == "__main__":
   """
 
   results = sqldb_agent.invoke({"question": question})
+  results.keys()
+  
   print(results["db_query"])
   print(results["df_summary"])
   print(results["df"])
