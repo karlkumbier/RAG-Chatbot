@@ -1,27 +1,12 @@
-from langchain.utilities.sql_database import SQLDatabase
 from langgraph.graph import StateGraph
 from langchain_core.messages import BaseMessage
 
 from agent.sqldb import nodes
 from typing_extensions import TypedDict
 from typing import Sequence, Annotated, Dict
-from agent.models import gpt4
 
 import operator
 import pandas as pd
-
-# Initialize base parameters for agent
-LLM = gpt4
-
-# Initialize connection to database 
-username = "picard"
-password = "persisters"
-port = "5432"
-host = "localhost"
-db = "persisters"
-pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{db}"
-DB = SQLDatabase.from_uri(pg_uri)
-
 
 class SQLDBAgent:
   
@@ -38,7 +23,7 @@ class SQLDBAgent:
       f"{name}_df_summary": str
     }
 
-    self.name = "name" 
+    self.name = name
     self.AgentState = TypedDict("AgentState", state)
     self.__construct_graph__()
 
@@ -77,18 +62,33 @@ class SQLDBAgent:
       self.agent.get_graph().print_ascii()
 
   def invoke(self, state: Dict, config: Dict):
-    return self.agent.invoke(state=state, config=config)
+    return self.agent.invoke(state, config=config)
     
 if __name__ == "__main__":
-  sqldb_agent = SQLDBAgent(db=db, name="sqldb", llm=LLM)
+  from agent.sqldb.agent import SQLDBAgent
+  from agent.models import gpt4
+  from langchain.utilities.sql_database import SQLDatabase
+
+  # Initialize connection to database 
+  username = "picard"
+  password = "persisters"
+  port = "5432"
+  host = "localhost"
+  dbname = "persisters"
+  pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{dbname}"
+  db = SQLDatabase.from_uri(pg_uri)
+
+  sqldb_agent = SQLDBAgent()
   sqldb_agent.__print__()
     
   # Test 1:
   question = """
-    Get a tables of log2 fold change, p-value, and gene name from the hypoxia screen. Filter these to PC9 cell lines. Limit results to 20 samples
+    Get a tables of log2 fold change, p-value, and gene name from the hypoxia 
+    vs. normoxia screen. Filter these to PC9 cell lines in the baseline
+    context. Limit results to 20 samples
   """
 
-  config = {"db": db, "llm": LLM, "name": sqldb_agent.name}
+  config = {"db": db, "llm": gpt4, "name": sqldb_agent.name}
   results = sqldb_agent.invoke({"question": question}, config=config)
   results.keys()
   

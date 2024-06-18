@@ -20,7 +20,7 @@ class ChartAgent:
       f"{name}_ntry": int
     }   
     
-    self.name = "name"
+    self.name = name
     self.AgentState = TypedDict("agentState", state)
     self.__build_graph__()
 
