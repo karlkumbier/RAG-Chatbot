@@ -8,27 +8,28 @@ from typing import Sequence, Annotated, Dict
 import operator
 import pandas as pd
 
-class SQLDBAgent:
+class SQLDBAgent(StateGraph):
   
   def __init__(self, name="sqldb"):
-    
+    """ Initializes graph state """    
     state = {
-      f"{name}_question": str,
+      "question": str,
       f"{name}_messages": Annotated[Sequence[BaseMessage], operator.add],
       f"{name}_ntry": int,
       f"{name}_dialect": str,
-      f"{name}_schmea": str,
+      f"{name}_schema": str,
       f"{name}_query": str,
       f"{name}_df": pd.DataFrame,
       f"{name}_df_summary": str
     }
 
     self.name = name
-    self.AgentState = TypedDict("AgentState", state)
-    self.__construct_graph__()
+    AgentState = TypedDict("AgentState", state)
+    self.agent = self.__construct_graph__(AgentState)
 
-  def __construct_graph__(self): 
-    workflow = StateGraph(self.AgentState)
+  def __construct_graph__(self, AgentState): 
+    """ Initializes logic flow of agent graph """
+    workflow = StateGraph(AgentState)
     workflow.add_node("initializer", nodes.initialize)
     workflow.add_node("schema_initializer", nodes.set_schema)
     workflow.add_node("query_generator", nodes.generate_query)
@@ -48,12 +49,12 @@ class SQLDBAgent:
       nodes.route,
       {
         "debug": "query_debugger", 
-        "describe": "table_summarizer", 
+        "summarize": "table_summarizer", 
         "__end__": "__end__"
       },
     )
     
-    self.agent = workflow.compile()
+    return workflow.compile()
     
   def __print__(self):
     if self.agent is None:
@@ -88,20 +89,23 @@ if __name__ == "__main__":
     context. Limit results to 20 samples
   """
 
-  config = {"db": db, "llm": gpt4, "name": sqldb_agent.name}
-  results = sqldb_agent.invoke({"question": question}, config=config)
-  results.keys()
+  config = {"db": db, "llm": gpt4, "name": sqldb_agent.name, "verbose": True}
+  results = sqldb_agent.invoke({"question": question}, config)
   
-  print(results["db_query"])
-  print(results["df_summary"])
-  print(results["df"])
+  name = sqldb_agent.name
+  print(results[f"{name}_query"])
+  print(results[f"{name}_df_summary"])
+  print(results[f"{name}_df"])
   
   # Test 2:
   question = """
-    Generate a table of differential expression results that includes data on all available cell lines. Include all available columns. Use only the baseline context for each cell line and the standard of care versus no drug contrast. Return all rows from this table.  
+    Generate a table of differential expression results that includes data on 
+    all available cell lines. Include all available columns. Use only the 
+    baseline context for each cell line and the standard of care versus no drug 
+    contrast. Return all rows from this table.  
   """
   
-  results = sqldb_agent.invoke({"question": question})
-  print(results["db_query"])
-  print(results["df"])
-  
+  results = sqldb_agent.invoke({"question": question}, config)
+  print(results[f"{name}_query"])
+  print(results[f"{name}_df_summary"])
+  print(results[f"{name}_df"])

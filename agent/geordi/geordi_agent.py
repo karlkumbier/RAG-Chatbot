@@ -1,5 +1,5 @@
-from agent.sqldb.sqldb_agent import sqldb_agent
-from agent.chart.chart_agent import chart_agent
+from agent.sqldb.archive.sqldb_agent import sqldb_agent
+from agent.chart.archive.chart_agent import chart_agent
 from agent.base_agents import chat_agent, agent_node
 from agent.models import cold_gpt35, gpt4
 from agent.geordi.prompts import *
