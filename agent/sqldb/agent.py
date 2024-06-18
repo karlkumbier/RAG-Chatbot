@@ -64,7 +64,8 @@ class SQLDBAgent(StateGraph):
 
   def invoke(self, state: Dict, config: Dict):
     return self.agent.invoke(state, config=config)
-    
+
+
 if __name__ == "__main__":
   from agent.sqldb.agent import SQLDBAgent
   from agent.models import gpt4
