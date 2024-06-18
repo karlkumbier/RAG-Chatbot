@@ -4,7 +4,7 @@ from langchain_core.messages import BaseMessage
 
 from agent.sqldb import nodes
 from typing_extensions import TypedDict
-from typing import Sequence, Annotated
+from typing import Sequence, Annotated, Dict
 from agent.models import gpt4
 
 import operator
@@ -25,13 +25,8 @@ DB = SQLDatabase.from_uri(pg_uri)
 
 class SQLDBAgent:
   
-  def __init__(self, **kwargs):
+  def __init__(self, name="sqldb"):
     
-    name = kwargs.get("name", "sqldb")
-    llm = kwargs.get("llm", LLM)
-    db = kwargs.get("db", DB)
-    
-    # Initialize agent state
     state = {
       f"{name}_question": str,
       f"{name}_messages": Annotated[Sequence[BaseMessage], operator.add],
@@ -42,16 +37,9 @@ class SQLDBAgent:
       f"{name}_df": pd.DataFrame,
       f"{name}_df_summary": str
     }
-    
+
+    self.name = "name" 
     self.AgentState = TypedDict("AgentState", state)
-    
-    # Initialize agent configs
-    self.configs = {}
-    self.configs["name"] = name
-    self.configs["llm"] = llm
-    self.configs["db"] = db
-    
-    # Build agent graph
     self.__construct_graph__()
 
   def __construct_graph__(self): 
@@ -88,11 +76,10 @@ class SQLDBAgent:
     else:
       self.agent.get_graph().print_ascii()
 
-  def invoke(self, state):
-    return self.agent.invoke(state=state, config=self.configs)
+  def invoke(self, state: Dict, config: Dict):
+    return self.agent.invoke(state=state, config=config)
     
 if __name__ == "__main__":
-
   sqldb_agent = SQLDBAgent(db=db, name="sqldb", llm=LLM)
   sqldb_agent.__print__()
     
@@ -101,7 +88,8 @@ if __name__ == "__main__":
     Get a tables of log2 fold change, p-value, and gene name from the hypoxia screen. Filter these to PC9 cell lines. Limit results to 20 samples
   """
 
-  results = sqldb_agent.invoke({"question": question})
+  config = {"db": db, "llm": LLM, "name": sqldb_agent.name}
+  results = sqldb_agent.invoke({"question": question}, config=config)
   results.keys()
   
   print(results["db_query"])

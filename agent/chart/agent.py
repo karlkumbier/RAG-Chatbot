@@ -2,18 +2,12 @@ from langgraph.graph import StateGraph
 from langchain_core.messages import BaseMessage
 
 from typing_extensions import TypedDict
-from typing import Sequence, Literal, Annotated
+from typing import Sequence, Annotated, Dict
 
-from agent.models import gpt4
-import agent.chart.nodes
+from agent.chart import nodes
 
 from plotly.graph_objects import Figure
-import pandas as pd
-import os
 import operator
-
-NTRY = 5
-
 
 class ChartAgent:
   
@@ -26,12 +20,14 @@ class ChartAgent:
       f"{name}_ntry": int
     }   
     
+    self.name = "name"
     self.AgentState = TypedDict("agentState", state)
+    self.__build_graph__()
 
   def __build_graph__(self):
     workflow = StateGraph(self.AgentState)
-    workflow.add_node("initializer", initialize)
-    workflow.add_node("code_generator", nodes.generate_chart)
+    workflow.add_node("initializer", nodes.initialize)
+    workflow.add_node("code_generator", nodes.generate_code)
     workflow.add_node("code_runner", nodes.run_code)
     workflow.add_node("code_debugger", nodes.debug_code)
     workflow.add_node("chart_summarizer", nodes.summarize_chart)
@@ -44,7 +40,7 @@ class ChartAgent:
     
     workflow.add_conditional_edges(
         "code_runner",
-        router,
+        nodes.route,
         {"debug": "code_debugger", "summarize": "chart_summarizer"},
     )
 
@@ -61,8 +57,12 @@ class ChartAgent:
     
 
 if __name__ == "__main__":
+  from agent.chart.agent import *
+  from agent.models import gpt4
+  import pandas as pd 
+  import os 
   
-  chart_agent = ChartAgent()
+  
   base_dir = "/awlab/projects/2021_07_Persisters/data/"
   data_dir = "012023001-RNASEQ-CELL/level2"
   df = pd.read_csv(os.path.join(base_dir, data_dir, "gene_de.csv"))
@@ -71,7 +71,10 @@ if __name__ == "__main__":
   Generate a plot log2 fold change on the x-axis and p-value on the y-axis. Filter data to include only PC9 cell line and the SOC, Normoxia v. No drug, Normoxia ContrastFull.
   """ 
   
-  result = chart_agent.invoke({"question": question, "df": df})
+  chart_agent = ChartAgent()
+  config = {"name": chart_agent.name, "llm": gpt4, "df": df}
+  result = chart_agent.invoke({"question": question}, config=config)
+
   messages = result["messages"]
   print(messages[-1].content)
   result["fig"].show()

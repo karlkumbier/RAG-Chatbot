@@ -4,7 +4,7 @@ from langchain_core.prompts import (
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import AIMessage
-from typing import Dict
+from typing import Dict, Literal
 
 from agent.chart.utils import run_python_fig_code
 from agent.chart.prompts import *
@@ -12,6 +12,7 @@ from agent.models import gpt4
 
 import functools
 LLM = gpt4
+NTRY = 10
 
 def initialize(state: Dict, config: Dict) -> Dict:
   """ Checks for valid state input and initializes state variables"""
@@ -99,8 +100,8 @@ def debug_code(state: Dict, config: Dict) -> Dict:
   ])   
   
   chain = prompt | llm | StrOutputParser()
-  state["column_names"] = df.columns
-  result = chain.invoke(state)
+  invoke_state = {"column_names":df.columns, "code": state[f"{name}_code"]}
+  result = chain.invoke(invoke_state)
 
   # update state
   state[f"{name}_code"] = result.replace("fig.show()", "")
