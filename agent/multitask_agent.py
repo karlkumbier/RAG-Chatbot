@@ -1,4 +1,4 @@
-from agent.rag_agent import rag_agent
+from agent.rag.rag_agent import rag_agent
 from agent.chart.archive.chart_agent import chart_agent
 from agent.sqldb.archive.sqldb_agent import db_agent
 from agent.models import gpt4

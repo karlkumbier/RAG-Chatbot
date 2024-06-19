@@ -4,14 +4,13 @@ from langchain_core.runnables import Runnable
 from langchain_core.language_models import BaseLanguageModel
 from typing import Dict
 
-def agent_node(state: Dict, agent: Runnable, name: str) -> Dict:
+def agent_node(state: Dict, agent: Runnable) -> Dict:
   """ Wrapper function for message handling langraph node """
   result = agent.invoke(state)
-  result = AIMessage(**result.dict(exclude={"type", "name"}), name=name)
+  result = AIMessage(**result.dict(exclude={"type", "name"}))
   
   # Convert agent output into a format suitable to append to the global state
   state["messages"] = [result]
-  state["sender"] = name
   
   if state.get("ntry") is not None: 
     state["ntry"] += 1
