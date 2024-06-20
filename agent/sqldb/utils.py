@@ -8,6 +8,41 @@ from agent.sqldb.prompts import SELECT_TABLE_PROMPT
 
 import pandas as pd
 import re
+import json
+
+def build_schema(question: str, db: SQLDatabase, llm: BaseLanguageModel) -> str:
+  """ Queries database and initializes table descriptions in schema. """ 
+    
+  # Query SQL database for description table: comments on tables/cols
+  tables = make_table_list(db) 
+  table_summary = {}
+  
+  for table in tables:  
+    table_comments = get_table_comments(db, table)
+    column_comments = get_column_comments(db, table)
+    
+    table_summary[table] = make_table_summary(
+      table, table_comments, column_comments, db
+    ) 
+  
+  # Select tables that are relevant to the query
+  tables_select = select_table(llm, question, table_summary)
+  tables_select = tables_select.split(", ")
+  
+  if tables_select == "None":
+    raise Exception("Tables relevant to the question cannot be found")
+
+  # Initialize schema for relevant tables
+  table_summary = {k:table_summary[k] for k in tables_select}
+  
+  schema = [
+    f"""{k}: {v['description']}\n\n
+    COLUMN DESCRIPTION:\n{json.dumps(v['columns'], indent=4)}"""
+    for k, v in table_summary.items()
+  ]
+
+  return f"\n\n{'-'*80}\n\n".join(schema)
+
 
 def make_table_list(db: SQLDatabase) -> List:
   """ Queries database to generate list of all all tables in database"""

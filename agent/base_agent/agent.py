@@ -14,16 +14,23 @@ class BaseAgent:
       raise Exception("Agent graph not built")
     
     self.agent.get_graph().print_ascii()
+  
     
-  def __update_state__(self, state: Dict, config: Dict):
+  def __clear_state__(self):
+    self.state = None
+  
+  
+  def __set_state__(self, state: Dict, config: Dict):
+    self.state = self.invoke(state, config)
+  
+  
+  def invoke(self, state: Dict, config: Dict | None):
     if self.agent is None:
       raise Exception("Agent graph not built")
     
-    self.state = self.agent.invoke(state, config)
+    return self.agent.invoke(state, config)
   
-  def __clear_state__(self):
-    self.state = None
-    
+
   def get(self, key: str):
     if self.state is None:
       return None

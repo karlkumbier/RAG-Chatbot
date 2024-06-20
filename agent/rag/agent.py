@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
-from typing import List
+from typing import List, Dict
 
 from agent.base_agent.agent import BaseAgent
 from agent.rag import nodes
@@ -20,6 +20,7 @@ class RAGAgent(BaseAgent):
   def __init__(self, name='rag'):
     super().__init__()
     self.agent = self.__build_graph__()
+    self.name = name
     
   def __build_graph__(self):
     workflow = StateGraph(RAGAgentState)
@@ -39,6 +40,6 @@ if __name__ == "__main__":
   
   question = """What are cancer persisters?"""
   config = {"name": "rag", "llm": LLM, "retriever": retriever}
-  rag_agent.__update_state__({"question":question}, config)
+  rag_agent.__set_state__({"question":question}, config)
   rag_agent.get("result")
   

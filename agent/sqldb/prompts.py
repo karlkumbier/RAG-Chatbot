@@ -52,7 +52,7 @@ formulate your query. In particular, use COLUMN DESCRIPTIONs to determine which
 columns are relevant to the question. Never query for all the columns from a 
 specific table, only ask for columns that are required to address the question.
 
-SCHEMA:\n\n{schema}
+SCHEMA:\n\n{dbschema}
 
 DO NOT make any DML statements (INSERT, UPDATE, DELETE, DROP etc.) to the database.
 
@@ -88,7 +88,7 @@ DO NOT provide any explanation of whether the TABLE is relevant to the
 QUESTION. DO NOT provide any instructions on other queries to generate new 
 tables.
 
-SCHEMA:\n\n{schema}
+SCHEMA:\n\n{dbschema}
 """
 
 DEBUG_QUERY_PROMPT = """
@@ -100,12 +100,14 @@ that will resolve the error message and answer the original QUESTION.
 
 The query must start and end with ```.
 
-The SCHEMA below summarizes tables in the database. Use this schema to formulate
-your NEW QUERY. 
+DO NOT explain how you are resolving the error. Just provide the new query.
+
+The SCHEMA below summarizes tables in the database. Use this schema to help 
+formulate your NEW QUERY. 
 
 QUESTION: {question}
 
 QUERY: {query}
 
-SCHEMA: {schema}
+SCHEMA:\n\n{dbschema}
 """

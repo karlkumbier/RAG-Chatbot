@@ -65,5 +65,5 @@ if __name__ == "__main__":
   """ 
   
   config = {"name": chart_agent.name, "llm": gpt4, "df": [df], "verbose": True}
-  chart_agent.__update_state__({"question": question}, config)
+  chart_agent.__set_state__({"question": question}, config)
   print(chart_agent.get("results").get("summary"))
