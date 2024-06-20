@@ -1,28 +1,25 @@
 from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
 
 from typing_extensions import TypedDict
 from typing import Sequence, Annotated, Dict
 
+from agent.base_agent.agent import BaseAgent
 from agent.chart import nodes
 
-from plotly.graph_objects import Figure
-import operator
-
 class ChartAgentState(TypedDict):
-    question: str # user question
-    messages: Annotated[Sequence[BaseMessage], operator.add] # chat history
-    code: str # figure code
-    fig: Figure # figure object
-    fig_summary: str # plain text description of figure
-    ntry: int # number of attempts
+  question: str # user question
+  messages: Annotated[Sequence[BaseMessage], add_messages] # state history
+  results: Dict # agent output
+  ntry: int # number of attempts
 
-class ChartAgent:
+class ChartAgent(BaseAgent):
   
   def __init__(self, name="chart"):
+    super().__init__()
     self.agent = self.__build_graph__()
     self.name = name
-    self.state = None
     
   def __build_graph__(self):
     workflow = StateGraph(ChartAgentState)
@@ -41,32 +38,14 @@ class ChartAgent:
     workflow.add_conditional_edges(
         "code_runner",
         nodes.route,
+        #{"debug": "__end__", "summarize": "__end__"}
         {"debug": "code_debugger", "summarize": "chart_summarizer"},
     )
 
     return workflow.compile()
-    
-  def __print__(self):
-    if self.agent is None:
-      raise Exception("Agent graph not built")
-    
-    self.agent.get_graph().print_ascii()
-    
-  def invoke(self, state: Dict, config: Dict):
-    return self.agent.invoke(state, config)
-  
-  def __clear_state__(self):
-    self.state = None
-    
-  def get(self, key: str):
-    if self.state is None:
-      return None
-    else:
-      return self.state.get(key)
-
 
 if __name__ == "__main__":
-  from agent.chart.agent import *
+  from agent.chart.agent import ChartAgent
   from agent.models import gpt4
   import pandas as pd 
   import os 
@@ -86,9 +65,5 @@ if __name__ == "__main__":
   """ 
   
   config = {"name": chart_agent.name, "llm": gpt4, "df": [df], "verbose": True}
-  result = chart_agent.invoke({"question": question}, config)
-
-  name = chart_agent.name
-  code = result[f"{name}_code"]
-  print(result[f"{name}_code"])
-  print(result[f"{name}_fig_summary"]) 
+  chart_agent.__update_state__({"question": question}, config)
+  print(chart_agent.get("results").get("summary"))

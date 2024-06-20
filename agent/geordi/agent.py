@@ -1,6 +1,7 @@
 from agent.models import gpt4
 from agent.geordi.prompts import *
 from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
 from langchain.utilities.sql_database import SQLDatabase
 
 # Initialize SQLDB base agent
@@ -17,7 +18,7 @@ LLM = gpt4
 
 class GeordiAgentState(TypedDict):
   question: str # user question
-  messages: Annotated[Sequence[BaseMessage], operator.add] # chat history
+  messages: Annotated[Sequence[BaseMessage], add_messages] # chat history
   sqldb_agent: SQLDBAgent # database agent
   chart_agent: ChartAgent # figure generating agent
   ntry: int # number of debug attemps

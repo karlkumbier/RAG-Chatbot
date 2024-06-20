@@ -1,4 +1,4 @@
-from agent_graph import *
+from agent.archive.agent_graph import *
 from pandas import read_csv
 
 df_baseline = read_csv("../sandbox/gene_de.csv").filter(

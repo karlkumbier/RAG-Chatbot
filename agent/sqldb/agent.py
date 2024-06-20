@@ -1,16 +1,15 @@
 from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
 
 from agent.sqldb import nodes
 from typing_extensions import TypedDict
 from typing import Sequence, Annotated, Dict
-
-import operator
 import pandas as pd
 
 class SQLDBAgentState(TypedDict):
   question: str # user question
-  messages: Annotated[Sequence[BaseMessage], operator.add] # chat history
+  messages: Annotated[Sequence[BaseMessage], add_messages] # chat history
   ntry: int # number of attempts
   dialect: str # SQL dialect
   schema: str # comments on tables + columns
