@@ -154,6 +154,6 @@ def summarize_table(state: Dict, config: Dict) -> Dict:
     state["table_string"] = state["results"]["df"].head().to_string()
     state["query"] = state["results"]["query"]  
     state["results"]["summary"] = chain.invoke(state)
-  
+    state["results"]["type"] = "table" 
   return state  
 

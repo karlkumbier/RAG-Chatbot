@@ -35,16 +35,18 @@ REQUEST: {question}
 
 TASK_PROMPT ="""
 You are a data scientist tasked with answering questions about your 
-laboratories datasets. Given a user REQUEST and message history, determine whether you need to generate a figure or run an analysis. Respond with
+laboratories datasets. Given a user REQUEST, determine whether you need to return a figure, table, or run an analysis. Respond with
 
 `figure` if you need to produce a figure requested by the user
+
+`table` if you need to produce a table requested by the user
 
 or 
 
 `analysis` if you need to run an analysis requested by the user
 
-Your response should be one word, one of `figure` or `analysis`. Do not provide 
-any explanation of your response. 
+Your response should be one word, one of `figure`, `table`, or `analysis`. Do 
+not provide any explanation of your response. 
 
 REQUEST: {question}
 """

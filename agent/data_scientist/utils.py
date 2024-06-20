@@ -1,5 +1,4 @@
-from agent.sqldb.agent import SQLDBAgent
-from agent.geordi.prompts import *
+from agent.data_scientist.prompts import *
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -20,16 +19,16 @@ def check_config(config: Dict) -> None:
   return None
 
 
-def check_relevance(question: str, agent: SQLDBAgent, llm: BaseLanguageModel) -> Literal["sufficient", "insufficient"]:
+def check_relevance(question: str, state: Dict, llm: BaseLanguageModel) -> Literal["sufficient", "insufficient"]:
   """ Determines whether data are sufficient or insufficient for request"""
   prompt = PromptTemplate.from_template(RELEVANCE_PROMPT)
   chain = prompt | llm | StrOutputParser()
   
-  invoke_state = {
+  _state = {
     "question": question,
-    "schema": agent.get("schema"),
-    "query": agent.get("query"),
-    "table": agent.get("df").head().to_string()
+    "schema": state.get("schema"),
+    "query": state.get("results").get("query"),
+    "table": state.get("results").get("df").head().to_string()
   }
   
-  return chain.invoke(invoke_state)
+  return chain.invoke(_state)

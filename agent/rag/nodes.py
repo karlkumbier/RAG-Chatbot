@@ -34,5 +34,5 @@ def generate(state: Dict, config: Dict) -> Dict:
   
   state["context"]= format_docs(state["documents"])
   state["results"]["response"] = chain.invoke(state)
-
+  state["results"]["type"] = "response"
   return state

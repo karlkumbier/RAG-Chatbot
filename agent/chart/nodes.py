@@ -128,4 +128,5 @@ def summarize_chart(state: Dict, config: Dict) -> Dict:
   final_message = state["messages"][-1].content
   _state = {"code":code, "message": final_message}
   state["results"]["summary"] = chain.invoke(_state)
+  state["results"]["type"] = "figure"
   return state

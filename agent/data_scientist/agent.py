@@ -1,50 +1,49 @@
-from agent.models import gpt4
-from agent.geordi.prompts import *
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langchain.utilities.sql_database import SQLDatabase
 
-# Initialize SQLDB base agent
-from agent.sqldb.agent import SQLDBAgent
-from agent.chart.agent import ChartAgent
-from agent.geordi import nodes
+from agent.base_agent.agent import BaseAgent
+from agent.data_scientist import nodes
+from agent.data_scientist.prompts import *
+from agent.models import gpt4
 
 from langchain_core.messages import BaseMessage
 from typing import Sequence, Annotated, Dict
 from typing_extensions import TypedDict
-import operator
 
 LLM = gpt4
 
-class GeordiAgentState(TypedDict):
+class DataScientistState(TypedDict):
   question: str # user question
   messages: Annotated[Sequence[BaseMessage], add_messages] # chat history
-  sqldb_agent: SQLDBAgent # database agent
-  chart_agent: ChartAgent # figure generating agent
+  sqldb_state: Dict # database agent state
+  chart_state: Dict # chart agent state
+  results: Dict # agent output
   ntry: int # number of debug attemps
 
-class GeordiAgent:
+class DataScientistAgent(BaseAgent):
   def __init__(self, name="geordi"):
-    """ Initializes graph state """    
-    self.agent = self.__construct_graph__()
+    super().__init__() 
+    self.agent = self.__build_graph__()
     self.name = name
-    self.state = None
     
-  def __construct_graph__(self): 
+  def __build_graph__(self): 
     """ Initializes logic flow of agent graph """
-    workflow = StateGraph(GeordiAgentState)
+    workflow = StateGraph(DataScientistState)
     workflow.add_node("initializer", nodes.initialize)
     workflow.add_node("data_loader", nodes.load_data)
     workflow.add_node("router_explainer", nodes.explain_router)
     workflow.add_node("figure_generator", nodes.make_figure)
     workflow.add_node("analysis_runner", nodes.run_analysis)
+    workflow.add_node("table_generator", nodes.make_table)
 
     workflow.set_entry_point("initializer")
     workflow.add_edge("initializer", "data_loader")
     workflow.add_edge("router_explainer", "data_loader")
     workflow.add_edge("figure_generator", "__end__")
     workflow.add_edge("analysis_runner", "__end__")
-
+    workflow.add_edge("table_generator", "__end__")
+    
     workflow.add_conditional_edges(
       "data_loader",
       nodes.route,
@@ -52,33 +51,14 @@ class GeordiAgent:
         "explain": "router_explainer", 
         "figure": "figure_generator", 
         "analysis": "analysis_runner",
-        "end": "__end__"
+        "table": "table_generator"
       }
     )
 
     return workflow.compile()
-  
-  def __print__(self):
-    if self.agent is None:
-      print("Graph not initialized")
-    else:
-      self.agent.get_graph().print_ascii()
-
-  def invoke(self, state: Dict, config: Dict):
-    return self.agent.invoke(state, config=config)
-    
-  def __clear_state__(self):
-    self.state = None
-    
-  def get(self, key: str):
-    if self.state is None:
-      return None
-    else:
-      return self.state.get(key)
-
 
 if __name__ == "__main__":
-  from agent.geordi.agent import *
+  from agent.data_scientist.agent import *
   username = "picard"
   password = "persisters"
   port = "5432"
@@ -87,7 +67,7 @@ if __name__ == "__main__":
   pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{dbname}"
   db = SQLDatabase.from_uri(pg_uri)
   
-  geordi = GeordiAgent()
+  geordi = DataScientistAgent()
   geordi.__print__()
   config = {"verbose": True, "db": db, "llm": LLM, "name": "geordi"}
 
@@ -99,7 +79,7 @@ if __name__ == "__main__":
   """
 
   result = geordi.invoke({"question": question}, config=config)
-  print(result["chart_agent"].state["fig_summary"])
+  print(result["results"])
   
   # Test 2
   question = """Combine differential expression results from the January 2023 
